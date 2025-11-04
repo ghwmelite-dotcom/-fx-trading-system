@@ -1,0 +1,122 @@
+/* FIXED: Full-width layout optimization */
+#root {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  /* Removed text-align: center to allow proper left-aligned content */
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+/* FIXED: Ensure tables use full available width */
+table {
+  width: 100%;
+  min-width: 100%;
+  table-layout: auto;
+}
+
+/* Improved table responsiveness */
+@media (max-width: 1024px) {
+  table {
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 768px) {
+  #root {
+    padding: 0;
+  }
+  
+  table {
+    font-size: 0.85rem;
+  }
+  
+  /* Ensure horizontal scroll on mobile for tables */
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Custom scrollbar styling for better UX */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(139, 92, 246, 0.5);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 92, 246, 0.7);
+}
+
+/* Smooth transitions */
+* {
+  box-sizing: border-box;
+}
+
+/* Loading animation */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Improved focus states for accessibility */
+*:focus-visible {
+  outline: 2px solid #8b5cf6;
+  outline-offset: 2px;
+  border-radius: 4px;
+}

@@ -1,0 +1,24 @@
+# Cloudflare Worker Configuration for FX Dashboard API
+name = "fx-dashboard-api"
+main = "src/index.js"
+compatibility_date = "2025-10-21"
+
+# D1 Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "fx-trading-db"
+database_id = "eab32bf6-a37d-4b8b-b5a3-a6601833f89a"  # Will be generated when you create the database
+
+# Environment variables (secrets)
+[vars]
+# Set your API key as a secret using: wrangler secret put API_KEY
+# API_KEY = "will-be-set-via-wrangler-secret"
+
+# CORS configuration
+[env.production]
+vars = { ENVIRONMENT = "production" }
+
+# Local development
+[env.development]
+vars = { ENVIRONMENT = "development" }
+# ======================================

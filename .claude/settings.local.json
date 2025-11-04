@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(tree:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx wrangler:*)",
+      "Bash(npm run dev:*)",
+      "Bash(curl:*)",
+      "Bash(node hash-password.js:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(del:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
