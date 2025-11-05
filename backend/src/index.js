@@ -1091,10 +1091,41 @@ async function handleMT4Webhook(request, env, corsHeaders) {
     
     // Validate required fields
     if (!data.symbol || data.lots === undefined || data.profit === undefined) {
-      return new Response(JSON.stringify({ 
+      return new Response(JSON.stringify({
         success: false,
         error: 'Missing required fields',
         required: ['symbol', 'lots', 'profit'],
+        received: data
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Validate account ID - MUST be provided and cannot be default (1)
+    if (!data.accountId && !data.account) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Account ID is required',
+        message: 'Please update your MT5 EA to version 2.00 or later',
+        instructions: 'The EA must send accountId using AccountInfoInteger(ACCOUNT_LOGIN)',
+        download: 'Get the latest EA from your dashboard repository',
+        received: data
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Reject trades using default account ID (indicates old EA version)
+    const providedAccountId = data.accountId || data.account;
+    if (providedAccountId === 1 || providedAccountId === '1') {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Invalid account ID',
+        message: 'Account ID cannot be 1 (default value). You must update your MT5 EA to version 2.00',
+        issue: 'Your EA is using the old hardcoded account ID instead of the real MT5 account number',
+        solution: 'Update line 163 of your EA to use: AccountInfoInteger(ACCOUNT_LOGIN)',
         received: data
       }), {
         status: 400,
@@ -1131,31 +1162,46 @@ async function handleMT4Webhook(request, env, corsHeaders) {
     const tradeType = (data.type === 0 || data.type === '0') ? 'buy' : 'sell';
 
     // Auto-create account if it doesn't exist
-    let accountId = data.accountId || data.account || 1;
+    // Use validated account ID from above (already checked it's not 1)
+    const accountId = providedAccountId;
 
     try {
       // Check if account exists
       const existingAccount = await env.DB.prepare(
-        'SELECT id FROM accounts WHERE id = ?'
+        'SELECT id, name FROM accounts WHERE id = ?'
       ).bind(accountId).first();
 
-      if (!existingAccount && accountId !== 1) {
+      if (!existingAccount) {
         // Create new account automatically
-        console.log('Auto-creating new MT5 account:', accountId);
+        const accountName = data.accountName || `MT5 Account ${accountId}`;
+        const brokerName = data.broker || 'MT5';
+        const initialBalance = data.balance || 10000;
+
+        console.log(`Auto-creating account: ${accountName} (${accountId}) - ${brokerName}`);
+
         await env.DB.prepare(
           `INSERT INTO accounts (id, name, broker, balance) VALUES (?, ?, ?, ?)`
         ).bind(
           accountId,
-          `MT5 Account ${accountId}`,
-          data.broker || 'MT5',
-          data.balance || 10000
+          accountName,
+          brokerName,
+          initialBalance
         ).run();
-        console.log('Account created successfully:', accountId);
+
+        console.log(`✓ Account ${accountId} created successfully`);
+      } else {
+        console.log(`Account ${accountId} exists: ${existingAccount.name}`);
       }
     } catch (accountError) {
       console.error('Error checking/creating account:', accountError);
-      // Continue with default account if error
-      accountId = 1;
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Database error while creating account',
+        details: accountError.message
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
     }
     
     console.log('Inserting trade:', {
@@ -1186,13 +1232,22 @@ async function handleMT4Webhook(request, env, corsHeaders) {
       data.ticket || null
     ).run();
     
-    console.log('Trade inserted successfully:', result.meta.last_row_id);
-    
-    return new Response(JSON.stringify({ 
+    console.log(`✓ Trade ${data.ticket} inserted successfully (ID: ${result.meta.last_row_id})`);
+
+    return new Response(JSON.stringify({
       success: true,
       message: 'Trade synced successfully',
-      ticket: data.ticket,
-      id: result.meta.last_row_id
+      trade: {
+        id: result.meta.last_row_id,
+        ticket: data.ticket,
+        symbol: data.symbol,
+        profit: data.profit
+      },
+      account: {
+        id: accountId,
+        broker: data.broker || 'MT5'
+      },
+      tip: 'View your trade at: https://fx-trading-dashboard.pages.dev'
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
