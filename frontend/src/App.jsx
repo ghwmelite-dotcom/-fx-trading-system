@@ -1355,6 +1355,207 @@ const FXTradingDashboard = () => {
 
     const profitFactor = avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : 'N/A';
 
+    // === ADVANCED ANALYTICS ===
+
+    // 1. Time of Day Analysis (hourly breakdown)
+    const timeOfDayData = Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      trades: 0,
+      wins: 0,
+      losses: 0,
+      pnl: 0
+    }));
+
+    filteredTrades.forEach(trade => {
+      if (trade.time) {
+        const hour = parseInt(trade.time.split(':')[0]);
+        if (hour >= 0 && hour < 24) {
+          timeOfDayData[hour].trades++;
+          timeOfDayData[hour].pnl += trade.pnl || 0;
+          if (trade.pnl > 0) timeOfDayData[hour].wins++;
+          else if (trade.pnl < 0) timeOfDayData[hour].losses++;
+        }
+      }
+    });
+
+    const timeOfDayAnalysis = timeOfDayData.map(d => ({
+      ...d,
+      winRate: d.trades > 0 ? ((d.wins / d.trades) * 100).toFixed(1) : 0,
+      hourLabel: `${d.hour.toString().padStart(2, '0')}:00`
+    }));
+
+    // 2. Weekday Analysis
+    const weekdayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const weekdayData = weekdayNames.map(day => ({
+      day,
+      trades: 0,
+      wins: 0,
+      losses: 0,
+      pnl: 0
+    }));
+
+    filteredTrades.forEach(trade => {
+      const dayIndex = new Date(trade.date).getDay();
+      weekdayData[dayIndex].trades++;
+      weekdayData[dayIndex].pnl += trade.pnl || 0;
+      if (trade.pnl > 0) weekdayData[dayIndex].wins++;
+      else if (trade.pnl < 0) weekdayData[dayIndex].losses++;
+    });
+
+    const weekdayAnalysis = weekdayData.map(d => ({
+      ...d,
+      winRate: d.trades > 0 ? ((d.wins / d.trades) * 100).toFixed(1) : 0,
+      avgPnl: d.trades > 0 ? (d.pnl / d.trades).toFixed(2) : 0
+    }));
+
+    // 3. Trading Session Analysis (GMT-based)
+    const sessions = [
+      { name: 'Asian', start: 0, end: 8, emoji: '🌏' },
+      { name: 'London', start: 8, end: 16, emoji: '🇬🇧' },
+      { name: 'New York', start: 13, end: 21, emoji: '🗽' },
+      { name: 'Pacific', start: 21, end: 24, emoji: '🌊' }
+    ];
+
+    const sessionData = sessions.map(session => ({
+      ...session,
+      trades: 0,
+      wins: 0,
+      losses: 0,
+      pnl: 0
+    }));
+
+    filteredTrades.forEach(trade => {
+      if (trade.time) {
+        const hour = parseInt(trade.time.split(':')[0]);
+        sessionData.forEach(session => {
+          if (hour >= session.start && hour < session.end) {
+            session.trades++;
+            session.pnl += trade.pnl || 0;
+            if (trade.pnl > 0) session.wins++;
+            else if (trade.pnl < 0) session.losses++;
+          }
+        });
+      }
+    });
+
+    const sessionAnalysis = sessionData.map(s => ({
+      ...s,
+      winRate: s.trades > 0 ? ((s.wins / s.trades) * 100).toFixed(1) : 0,
+      avgPnl: s.trades > 0 ? (s.pnl / s.trades).toFixed(2) : 0
+    })).filter(s => s.trades > 0);
+
+    // 4. Monthly P&L Calendar
+    const monthlyData = {};
+    filteredTrades.forEach(trade => {
+      const monthKey = trade.date.substring(0, 7); // YYYY-MM
+      if (!monthlyData[monthKey]) {
+        monthlyData[monthKey] = { pnl: 0, trades: 0, wins: 0 };
+      }
+      monthlyData[monthKey].pnl += trade.pnl || 0;
+      monthlyData[monthKey].trades++;
+      if (trade.pnl > 0) monthlyData[monthKey].wins++;
+    });
+
+    const monthlyCalendar = Object.entries(monthlyData)
+      .map(([month, data]) => ({
+        month,
+        ...data,
+        winRate: data.trades > 0 ? ((data.wins / data.trades) * 100).toFixed(1) : 0,
+        monthLabel: new Date(month + '-01').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+      }))
+      .sort((a, b) => a.month.localeCompare(b.month));
+
+    // 5. Drawdown Analysis (equity curve)
+    const sortedTrades = [...filteredTrades].sort((a, b) =>
+      new Date(a.date + ' ' + (a.time || '00:00')) - new Date(b.date + ' ' + (b.time || '00:00'))
+    );
+
+    let runningEquity = 0;
+    let peak = 0;
+    const drawdownData = sortedTrades.map(trade => {
+      runningEquity += trade.pnl || 0;
+      if (runningEquity > peak) peak = runningEquity;
+      const drawdown = runningEquity - peak;
+      const drawdownPercent = peak > 0 ? (drawdown / peak) * 100 : 0;
+
+      return {
+        date: trade.date,
+        equity: parseFloat(runningEquity.toFixed(2)),
+        drawdown: parseFloat(drawdown.toFixed(2)),
+        drawdownPercent: parseFloat(drawdownPercent.toFixed(2)),
+        peak: parseFloat(peak.toFixed(2))
+      };
+    });
+
+    const maxDrawdownPoint = drawdownData.reduce((max, curr) =>
+      curr.drawdown < max.drawdown ? curr : max,
+      { drawdown: 0 }
+    );
+
+    // 6. Trade Duration Analysis
+    const durationBuckets = [
+      { label: '< 1 hour', max: 1 },
+      { label: '1-4 hours', min: 1, max: 4 },
+      { label: '4-24 hours', min: 4, max: 24 },
+      { label: '1-7 days', min: 24, max: 168 },
+      { label: '> 7 days', min: 168 }
+    ];
+
+    const durationData = durationBuckets.map(bucket => ({
+      ...bucket,
+      trades: 0,
+      wins: 0,
+      pnl: 0
+    }));
+
+    filteredTrades.forEach(trade => {
+      if (trade.entry_time && trade.exit_time) {
+        const entryDate = new Date(trade.date + ' ' + trade.entry_time);
+        const exitDate = new Date(trade.exit_date ? trade.exit_date + ' ' + trade.exit_time : trade.date + ' ' + trade.exit_time);
+        const durationHours = (exitDate - entryDate) / (1000 * 60 * 60);
+
+        durationBuckets.forEach((bucket, index) => {
+          const inBucket =
+            (bucket.max && durationHours < bucket.max && (!bucket.min || durationHours >= bucket.min)) ||
+            (bucket.min && !bucket.max && durationHours >= bucket.min);
+
+          if (inBucket) {
+            durationData[index].trades++;
+            durationData[index].pnl += trade.pnl || 0;
+            if (trade.pnl > 0) durationData[index].wins++;
+          }
+        });
+      }
+    });
+
+    const durationAnalysis = durationData.map(d => ({
+      ...d,
+      winRate: d.trades > 0 ? ((d.wins / d.trades) * 100).toFixed(1) : 0,
+      avgPnl: d.trades > 0 ? (d.pnl / d.trades).toFixed(2) : 0
+    })).filter(d => d.trades > 0);
+
+    // 7. Best/Worst Hours
+    const activeHours = timeOfDayAnalysis.filter(h => h.trades >= 3);
+    const bestHour = activeHours.reduce((best, curr) =>
+      curr.pnl > best.pnl ? curr : best,
+      { pnl: -Infinity, hour: 0 }
+    );
+    const worstHour = activeHours.reduce((worst, curr) =>
+      curr.pnl < worst.pnl ? curr : worst,
+      { pnl: Infinity, hour: 0 }
+    );
+
+    // 8. Best/Worst Days
+    const activeDays = weekdayAnalysis.filter(d => d.trades >= 3);
+    const bestDay = activeDays.reduce((best, curr) =>
+      curr.pnl > best.pnl ? curr : best,
+      { pnl: -Infinity, day: 'N/A' }
+    );
+    const worstDay = activeDays.reduce((worst, curr) =>
+      curr.pnl < worst.pnl ? curr : worst,
+      { pnl: Infinity, day: 'N/A' }
+    );
+
     return {
       totalPnL,
       winningTrades: winningTrades.length,
@@ -1367,7 +1568,19 @@ const FXTradingDashboard = () => {
       topPairs,
       chartData: cumulativeData,
       pieData,
-      totalTrades: filteredTrades.length
+      totalTrades: filteredTrades.length,
+      // Advanced Analytics
+      timeOfDayAnalysis,
+      weekdayAnalysis,
+      sessionAnalysis,
+      monthlyCalendar,
+      drawdownData,
+      maxDrawdownPoint,
+      durationAnalysis,
+      bestHour,
+      worstHour,
+      bestDay,
+      worstDay
     };
   }, [filteredAndSearchedTrades, selectedAccount, accounts]);
 
