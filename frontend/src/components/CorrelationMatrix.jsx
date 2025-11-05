@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { TrendingUp, TrendingDown, RefreshCw, Info, Copy, Check } from 'lucide-react';
 
 /**
@@ -15,6 +15,26 @@ const CorrelationMatrix = ({ trades = [], theme = 'dark' }) => {
     'EUR/USD', 'GBP/USD', 'USD/JPY', 'USD/CHF',
     'AUD/USD', 'USD/CAD', 'NZD/USD', 'EUR/GBP'
   ];
+
+  // Calculate Pearson correlation coefficient
+  const calculateCorrelation = useCallback((x, y) => {
+    if (!x || !y || x.length === 0 || y.length === 0 || x.length !== y.length) return 0;
+
+    const n = Math.min(x.length, y.length);
+    if (n < 2) return 0;
+
+    const sumX = x.slice(0, n).reduce((sum, val) => sum + val, 0);
+    const sumY = y.slice(0, n).reduce((sum, val) => sum + val, 0);
+    const sumXY = x.slice(0, n).reduce((sum, val, i) => sum + val * y[i], 0);
+    const sumX2 = x.slice(0, n).reduce((sum, val) => sum + val * val, 0);
+    const sumY2 = y.slice(0, n).reduce((sum, val) => sum + val * val, 0);
+
+    const numerator = n * sumXY - sumX * sumY;
+    const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+
+    if (denominator === 0) return 0;
+    return numerator / denominator;
+  }, []);
 
   // Calculate correlations
   const correlations = useMemo(() => {
@@ -70,27 +90,7 @@ const CorrelationMatrix = ({ trades = [], theme = 'dark' }) => {
     });
 
     return matrix;
-  }, [trades, timeframe]);
-
-  // Calculate Pearson correlation coefficient
-  const calculateCorrelation = (x, y) => {
-    if (x.length === 0 || y.length === 0 || x.length !== y.length) return 0;
-
-    const n = Math.min(x.length, y.length);
-    if (n < 2) return 0;
-
-    const sumX = x.slice(0, n).reduce((sum, val) => sum + val, 0);
-    const sumY = y.slice(0, n).reduce((sum, val) => sum + val, 0);
-    const sumXY = x.slice(0, n).reduce((sum, val, i) => sum + val * y[i], 0);
-    const sumX2 = x.slice(0, n).reduce((sum, val) => sum + val * val, 0);
-    const sumY2 = y.slice(0, n).reduce((sum, val) => sum + val * val, 0);
-
-    const numerator = n * sumXY - sumX * sumY;
-    const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
-
-    if (denominator === 0) return 0;
-    return numerator / denominator;
-  };
+  }, [trades, timeframe, calculateCorrelation]);
 
   // Get color for correlation value
   const getCorrelationColor = (value) => {
