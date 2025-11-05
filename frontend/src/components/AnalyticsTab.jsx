@@ -509,6 +509,14 @@ const AnalyticsTab = ({ analytics }) => {
     </div>
   );
 
+  const renderCorrelation = () => (
+    <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
+      <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Correlation Matrix...</div></div>}>
+        <CorrelationMatrix trades={analytics?.trades || []} theme="dark" />
+      </Suspense>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       {/* Tabs */}
@@ -533,17 +541,11 @@ const AnalyticsTab = ({ analytics }) => {
       </div>
 
       {/* Tab Content */}
+      {activeTab === 'correlation' && renderCorrelation()}
       {activeTab === 'overview' && renderOverview()}
       {activeTab === 'time' && renderTimeAnalysis()}
       {activeTab === 'performance' && renderPerformance()}
       {activeTab === 'patterns' && renderPatterns()}
-      {activeTab === 'correlation' && (
-        <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-          <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Correlation Matrix...</div></div>}>
-            <CorrelationMatrix trades={analytics.trades || []} theme="dark" />
-          </Suspense>
-        </div>
-      )}
     </div>
   );
 };
