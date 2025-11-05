@@ -4,7 +4,8 @@
 //|                        Place in MT5/MQL5/Experts folder          |
 //+------------------------------------------------------------------+
 #property copyright "FX Dashboard Auto Sync"
-#property version   "1.00"
+#property version   "2.00"
+#property description "Auto-detects MT5 account number - supports multiple accounts"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -12,8 +13,8 @@
 // Input parameters - CONFIGURE THESE
 input string API_URL = "https://fx-dashboard-api.ghwmelite.workers.dev/api/mt4-webhook";  // Your Worker URL
 input string API_KEY = "YOUR_API_KEY_HERE";  // Your API key (get from: wrangler secret list)
-input int    ACCOUNT_ID = 1;  // Account ID in your dashboard
 input int    CHECK_INTERVAL = 60;  // Check for new closed trades every N seconds
+// NOTE: Account ID is now automatically detected from MT5 account (no manual input needed)
 
 // Global variables
 datetime lastCheckTime = 0;
@@ -151,14 +152,19 @@ void SyncClosedTrades()
 //+------------------------------------------------------------------+
 //| Prepare trade data as JSON                                       |
 //+------------------------------------------------------------------+
-string PrepareTradeJSON(ulong ticket, string symbol, string type, 
-                       double lots, double openPrice, double closePrice, 
+string PrepareTradeJSON(ulong ticket, string symbol, string type,
+                       double lots, double openPrice, double closePrice,
                        double profit, datetime closeTime)
 {
    MqlDateTime dt;
    TimeToStruct(closeTime, dt);
    string dateStr = StringFormat("%04d-%02d-%02d", dt.year, dt.mon, dt.day);
-   
+
+   // Get real MT5 account info
+   long accountNumber = AccountInfoInteger(ACCOUNT_LOGIN);
+   string brokerName = AccountInfoString(ACCOUNT_COMPANY);
+   double accountBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+
    string json = "{";
    json += "\"ticket\":" + IntegerToString(ticket) + ",";
    json += "\"symbol\":\"" + symbol + "\",";
@@ -168,9 +174,11 @@ string PrepareTradeJSON(ulong ticket, string symbol, string type,
    json += "\"closePrice\":" + DoubleToString(closePrice, 5) + ",";
    json += "\"profit\":" + DoubleToString(profit, 2) + ",";
    json += "\"closeTime\":\"" + dateStr + "\",";
-   json += "\"accountId\":" + IntegerToString(ACCOUNT_ID);
+   json += "\"accountId\":" + IntegerToString(accountNumber) + ",";
+   json += "\"broker\":\"" + brokerName + "\",";
+   json += "\"balance\":" + DoubleToString(accountBalance, 2);
    json += "}";
-   
+
    return json;
 }
 
@@ -233,14 +241,18 @@ bool SendToAPI(string jsonData)
 //| 5. Go to Tools > Options > Expert Advisors                      |
 //| 6. Enable "Allow WebRequest for listed URL"                     |
 //| 7. Click "Add" and enter your Worker URL                        |
-//|    Example: https://fx-dashboard-api.your-name.workers.dev      |
+//|    Example: https://fx-dashboard-api.ghwmelite.workers.dev      |
 //| 8. Drag this EA onto any chart                                  |
 //| 9. In inputs, set:                                              |
 //|    - API_URL: Your Cloudflare Worker URL                        |
-//|    - API_KEY: Your secret API key                               |
-//|    - ACCOUNT_ID: 1 (or your account ID from dashboard)          |
+//|    - API_KEY: Your secret API key (optional)                    |
+//|    - CHECK_INTERVAL: 60 (seconds between sync checks)           |
 //| 10. Click OK - trades will auto-sync every 60 seconds!         |
+//|                                                                  |
+//| NEW: Account ID is automatically detected from your MT5 account |
+//| Each MT5 account creates a separate dashboard account!          |
 //|                                                                  |
 //| FOR PROP FIRMS: Works with FTMO, The5ers, MyForexFunds,        |
 //| FundedNext, and any prop firm using MetaTrader 5!              |
+//| Run this EA on each account to track them separately!           |
 //+------------------------------------------------------------------
