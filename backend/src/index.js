@@ -1013,11 +1013,26 @@ async function serveR2Image(key, env, corsHeaders) {
 async function getAccounts(env, corsHeaders, user) {
   // For now, all users can see all accounts (accounts are shared resources)
   // TODO: Add user_id to accounts table for full multi-user isolation
-  const { results } = await env.DB.prepare(
+  const { results: accounts } = await env.DB.prepare(
     'SELECT * FROM accounts ORDER BY name'
   ).all();
 
-  return new Response(JSON.stringify(results), {
+  // Calculate actual balance for each account from trades
+  const accountsWithBalance = await Promise.all(accounts.map(async (account) => {
+    const { results: trades } = await env.DB.prepare(
+      'SELECT COALESCE(SUM(pnl), 0) as total_pnl FROM trades WHERE account_id = ?'
+    ).bind(account.id).all();
+
+    const totalPnl = trades[0]?.total_pnl || 0;
+    const calculatedBalance = account.balance + totalPnl;
+
+    return {
+      ...account,
+      balance: calculatedBalance
+    };
+  }));
+
+  return new Response(JSON.stringify(accountsWithBalance), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
   });
 }
@@ -1114,7 +1129,34 @@ async function handleMT4Webhook(request, env, corsHeaders) {
     // Prepare trade data with defaults
     const tradeDate = data.closeTime || new Date().toISOString().split('T')[0];
     const tradeType = (data.type === 0 || data.type === '0') ? 'buy' : 'sell';
-    const accountId = data.accountId || 1;
+
+    // Auto-create account if it doesn't exist
+    let accountId = data.accountId || data.account || 1;
+
+    try {
+      // Check if account exists
+      const existingAccount = await env.DB.prepare(
+        'SELECT id FROM accounts WHERE id = ?'
+      ).bind(accountId).first();
+
+      if (!existingAccount && accountId !== 1) {
+        // Create new account automatically
+        console.log('Auto-creating new MT5 account:', accountId);
+        await env.DB.prepare(
+          `INSERT INTO accounts (id, name, broker, balance) VALUES (?, ?, ?, ?)`
+        ).bind(
+          accountId,
+          `MT5 Account ${accountId}`,
+          data.broker || 'MT5',
+          data.balance || 10000
+        ).run();
+        console.log('Account created successfully:', accountId);
+      }
+    } catch (accountError) {
+      console.error('Error checking/creating account:', accountError);
+      // Continue with default account if error
+      accountId = 1;
+    }
     
     console.log('Inserting trade:', {
       date: tradeDate,
