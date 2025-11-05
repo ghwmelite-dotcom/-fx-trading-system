@@ -11,14 +11,14 @@ import {
 const CorrelationMatrix = lazy(() => import('./CorrelationMatrix'));
 
 const AnalyticsTab = ({ analytics }) => {
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('correlation');
 
   const tabs = [
+    { id: 'correlation', label: 'Correlation', icon: TrendingUp },
     { id: 'overview', label: 'Overview', icon: BarChart3 },
     { id: 'time', label: 'Time Analysis', icon: Clock },
     { id: 'performance', label: 'Performance', icon: TrendingDown },
-    { id: 'patterns', label: 'Patterns', icon: Target },
-    { id: 'correlation', label: 'Correlation', icon: TrendingUp }
+    { id: 'patterns', label: 'Patterns', icon: Target }
   ];
 
   // Color schemes

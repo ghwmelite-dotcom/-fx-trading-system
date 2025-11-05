@@ -2596,6 +2596,13 @@ const FXTradingDashboard = () => {
         {/* Overview Tab */}
         {activeTab === 'overview' && (
           <>
+            {/* Economic Calendar */}
+            <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10 mb-8">
+              <Suspense fallback={<div className="flex items-center justify-center min-h-[200px]"><div className="text-slate-400">Loading Calendar...</div></div>}>
+                <EconomicCalendar theme="dark" />
+              </Suspense>
+            </div>
+
             {/* Key Metrics Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-6 mb-8">
               <div className="group relative bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10 hover:border-purple-500/50 transition-all duration-300 hover:shadow-2xl hover:shadow-purple-500/20 hover:scale-105">
@@ -2809,13 +2816,6 @@ const FXTradingDashboard = () => {
                 </div>
               )}
             </div>
-
-            {/* Economic Calendar */}
-            <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10 mt-8">
-              <Suspense fallback={<div className="flex items-center justify-center min-h-[200px]"><div className="text-slate-400">Loading Calendar...</div></div>}>
-                <EconomicCalendar theme="dark" />
-              </Suspense>
-            </div>
           </>
         )}
 
@@ -2829,6 +2829,16 @@ const FXTradingDashboard = () => {
         {/* All Trades Tab */}
         {activeTab === 'trades' && (
           <>
+          {/* Trade Copier */}
+          <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10 mb-6">
+            <Suspense fallback={<div className="flex items-center justify-center min-h-[200px]"><div className="text-slate-400">Loading Trade Copier...</div></div>}>
+              <TradeCopier accounts={accounts} onCopyTrade={(copiedTrade) => {
+                setTrades(prev => [...prev, copiedTrade]);
+                saveTrades([...trades, copiedTrade]);
+              }} theme="dark" />
+            </Suspense>
+          </div>
+
           <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
@@ -3010,16 +3020,6 @@ const FXTradingDashboard = () => {
                 </div>
               </div>
             )}
-          </div>
-
-          {/* Trade Copier */}
-          <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10 mt-6">
-            <Suspense fallback={<div className="flex items-center justify-center min-h-[200px]"><div className="text-slate-400">Loading Trade Copier...</div></div>}>
-              <TradeCopier accounts={accounts} onCopyTrade={(copiedTrade) => {
-                setTrades(prev => [...prev, copiedTrade]);
-                saveTrades([...trades, copiedTrade]);
-              }} theme="dark" />
-            </Suspense>
           </div>
           </>
         )}
