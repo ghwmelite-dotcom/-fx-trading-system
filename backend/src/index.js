@@ -169,7 +169,10 @@ export default {
       : [
           'https://fx-trading-dashboard.pages.dev',
           'https://*.fx-trading-dashboard.pages.dev',
+          'https://fx-trade-metrics-pro.ghwmelite.work',
           'http://localhost:5173',
+          'http://localhost:5174',
+          'http://localhost:5175',
           'http://localhost:4173'
         ];
 
@@ -520,7 +523,7 @@ async function getTrades(env, corsHeaders, user) {
     results = await query.all();
   } else {
     query = env.DB.prepare('SELECT * FROM trades WHERE user_id = ? ORDER BY date DESC, id DESC LIMIT 1000');
-    results = await query.bind(user.userId).all();
+    results = await query.bind(user.id).all();
   }
 
   return new Response(JSON.stringify(results.results || []), {
@@ -545,7 +548,7 @@ async function createTrade(request, env, corsHeaders, user) {
     trade.pnl,
     trade.accountId || 1,
     trade.ticket || null,
-    user.userId  // Set the user_id from JWT token
+    user.id  // Set the user_id from JWT token
   ).run();
 
   return new Response(JSON.stringify({
@@ -566,7 +569,7 @@ async function createBulkTrades(request, env, corsHeaders, user) {
   );
 
   const batch = trades.map(t =>
-    stmt.bind(t.date, t.pair, t.type, t.size, t.entryPrice, t.exitPrice, t.pnl, t.accountId || 1, t.ticket || null, user.userId)
+    stmt.bind(t.date, t.pair, t.type, t.size, t.entryPrice, t.exitPrice, t.pnl, t.accountId || 1, t.ticket || null, user.id)
   );
 
   await env.DB.batch(batch);
@@ -586,7 +589,7 @@ async function updateTrade(tradeId, request, env, corsHeaders, user) {
   // Verify ownership (unless admin)
   if (user.role !== 'admin') {
     const existing = await env.DB.prepare('SELECT user_id FROM trades WHERE id = ?').bind(tradeId).first();
-    if (!existing || existing.user_id !== user.userId) {
+    if (!existing || existing.user_id !== user.id) {
       return new Response(JSON.stringify({
         success: false,
         error: 'Trade not found or access denied'
@@ -636,7 +639,7 @@ async function deleteTrade(tradeId, env, corsHeaders, user) {
   // Verify ownership (unless admin)
   if (user.role !== 'admin') {
     const existing = await env.DB.prepare('SELECT user_id FROM trades WHERE id = ?').bind(tradeId).first();
-    if (!existing || existing.user_id !== user.userId) {
+    if (!existing || existing.user_id !== user.id) {
       return new Response(JSON.stringify({
         success: false,
         error: 'Trade not found or access denied'
@@ -676,7 +679,7 @@ async function updateTradeJournal(tradeId, request, env, corsHeaders, user) {
   // Verify ownership (unless admin)
   if (user.role !== 'admin') {
     const existing = await env.DB.prepare('SELECT user_id FROM trades WHERE id = ?').bind(tradeId).first();
-    if (!existing || existing.user_id !== user.userId) {
+    if (!existing || existing.user_id !== user.id) {
       return new Response(JSON.stringify({
         success: false,
         error: 'Trade not found or access denied'
@@ -797,7 +800,7 @@ async function uploadScreenshot(tradeId, request, env, corsHeaders, user) {
     }
 
     // Check ownership (unless admin)
-    if (user.role !== 'admin' && trade.user_id !== user.userId) {
+    if (user.role !== 'admin' && trade.user_id !== user.id) {
       return new Response(JSON.stringify({
         success: false,
         error: 'Access denied'
@@ -916,7 +919,7 @@ async function deleteScreenshot(tradeId, request, env, corsHeaders, user) {
     }
 
     // Check ownership (unless admin)
-    if (user.role !== 'admin' && trade.user_id !== user.userId) {
+    if (user.role !== 'admin' && trade.user_id !== user.id) {
       return new Response(JSON.stringify({
         success: false,
         error: 'Access denied'

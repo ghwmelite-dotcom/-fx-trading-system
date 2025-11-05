@@ -174,9 +174,11 @@ const LandingPage = ({ onLoginClick }) => {
               <div className="flex items-center gap-4">
                 <button
                   onClick={onLoginClick}
-                  className="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl font-semibold transition-all hover:scale-105 backdrop-blur-sm"
+                  className="group relative px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-xl font-bold transition-all hover:scale-105 shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 flex items-center gap-2"
                 >
+                  <Lock size={16} className="group-hover:rotate-12 transition-transform" />
                   Login
+                  <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
                 </button>
               </div>
             </div>
@@ -214,8 +216,8 @@ const LandingPage = ({ onLoginClick }) => {
               <div className="flex flex-col sm:flex-row items-center justify-center gap-5 pt-6 animate-fade-in-up animation-delay-400">
                 <a
                   href="#early-access"
-                  className="group px-10 py-5 bg-gradient-to-r from-purple-700 to-blue-700 text-yellow-400 rounded-2xl font-extrabold text-lg transition-all hover:scale-105 shadow-2xl shadow-purple-500/50 hover:shadow-purple-500/70 flex items-center gap-3"
-                  style={{ textShadow: '0 2px 8px rgba(0, 0, 0, 0.4)' }}
+                  className="group px-10 py-5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-2xl font-extrabold text-lg transition-all hover:scale-105 shadow-2xl shadow-purple-500/50 hover:shadow-purple-500/70 flex items-center gap-3"
+                  style={{ textShadow: '0 2px 10px rgba(0, 0, 0, 0.8), 0 0 20px rgba(0, 0, 0, 0.5)' }}
                 >
                   <Sparkles size={22} className="group-hover:rotate-12 transition-transform" />
                   Get Early Access
@@ -522,8 +524,7 @@ const LandingPage = ({ onLoginClick }) => {
 
                     <button
                       type="submit"
-                      className="w-full px-10 py-5 bg-gradient-to-r from-purple-700 to-blue-700 text-yellow-400 rounded-2xl font-extrabold text-lg hover:scale-105 transition-all shadow-2xl shadow-purple-500/50 flex items-center justify-center gap-3 group"
-                      style={{ textShadow: '0 2px 8px rgba(0, 0, 0, 0.4)' }}
+                      className="w-full px-10 py-5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-2xl font-extrabold text-lg hover:scale-105 transition-all shadow-2xl shadow-purple-500/50 flex items-center justify-center gap-3 group"
                     >
                       <Send size={22} />
                       Request Early Access
@@ -577,8 +578,7 @@ const LandingPage = ({ onLoginClick }) => {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-5">
               <a
                 href="#early-access"
-                className="group px-10 py-5 bg-gradient-to-r from-purple-700 to-blue-700 text-yellow-400 rounded-2xl font-extrabold text-lg transition-all hover:scale-105 shadow-2xl shadow-purple-500/50 flex items-center gap-3"
-                style={{ textShadow: '0 2px 8px rgba(0, 0, 0, 0.4)' }}
+                className="group px-10 py-5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-2xl font-extrabold text-lg transition-all hover:scale-105 shadow-2xl shadow-purple-500/50 flex items-center gap-3"
               >
                 Get Early Access
                 <ArrowRight className="group-hover:translate-x-1 transition-transform" size={22} />

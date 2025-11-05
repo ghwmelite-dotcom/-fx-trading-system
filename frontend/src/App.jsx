@@ -1,14 +1,21 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Upload, TrendingUp, TrendingDown, DollarSign, Activity, BarChart3, Calendar, Plus, Download, Settings, Wifi, WifiOff, X, Check, AlertCircle, Zap, Target, Edit, Trash2, Filter, Search, Star, Tag, Smile, LogOut, User, Shield, Moon, Sun } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useCallback, lazy, Suspense } from 'react';
+import { Upload, TrendingUp, TrendingDown, DollarSign, Activity, BarChart3, Calendar, Plus, Download, Settings, Wifi, WifiOff, X, Check, AlertCircle, Zap, Target, Edit, Trash2, Filter, Search, Star, Tag, Smile, LogOut, User, Shield, Moon, Sun, Camera, Loader, Info } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import * as XLSX from 'xlsx';
 import ScreenshotUpload from './ScreenshotUpload';
-import LoginPage from './components/LoginPage';
-import LoginModal from './components/LoginModal';
-import LandingPage from './components/LandingPage';
-import AdminPortal from './components/AdminPortal';
-import JournalTab from './components/JournalTab';
-import PsychologyCoach from './components/PsychologyCoach';
+
+// Lazy load heavy components for better performance
+const LoginPage = lazy(() => import('./components/LoginPage'));
+const LoginModal = lazy(() => import('./components/LoginModal'));
+const LandingPage = lazy(() => import('./components/LandingPage'));
+const AdminPortal = lazy(() => import('./components/AdminPortal'));
+const JournalTab = lazy(() => import('./components/JournalTab'));
+const PsychologyCoach = lazy(() => import('./components/PsychologyCoach'));
+const AnalyticsTab = lazy(() => import('./components/AnalyticsTab'));
+const ForexLoader = lazy(() => import('./components/ForexLoader'));
+const TradingViewWidget = lazy(() => import('./components/TradingViewWidget'));
+const PositionSizeCalculator = lazy(() => import('./components/PositionSizeCalculator'));
+const QuickScreenshotCapture = lazy(() => import('./components/QuickScreenshotCapture'));
+const TradeTemplateManager = lazy(() => import('./components/TradeTemplateManager'));
 
 const COLORS = ['#8b5cf6', '#ec4899', '#06b6d4', '#10b981', '#f59e0b', '#ef4444'];
 
@@ -809,6 +816,9 @@ const FXTradingDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [isLoading, setIsLoading] = useState(true);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+  const [showCalculator, setShowCalculator] = useState(false);
+  const [showScreenshotPrompt, setShowScreenshotPrompt] = useState(false);
+  const [newTradeId, setNewTradeId] = useState(null);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -906,25 +916,22 @@ const FXTradingDashboard = () => {
 
   // Load config and data on mount
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !authToken) return;
 
     const savedUrl = localStorage.getItem('fx_api_url');
-    const savedKey = localStorage.getItem('fx_api_key');
 
-    // Only override defaults if saved values exist
+    // Only override default if saved value exists
     if (savedUrl) setApiUrl(savedUrl);
-    if (savedKey) setApiKey(savedKey);
 
-    // Use current apiUrl and apiKey (either defaults or loaded from localStorage)
+    // Use current apiUrl (either default or loaded from localStorage)
     const urlToUse = savedUrl || apiUrl;
-    const keyToUse = savedKey || apiKey;
 
-    if (urlToUse && keyToUse) {
-      loadDataFromAPI(urlToUse, keyToUse);
+    if (urlToUse && authToken) {
+      loadDataFromAPI(urlToUse, authToken);
     } else {
       setIsLoading(false);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, authToken]);
 
   const showNotification = useCallback((message, type = 'success') => {
     setNotification({ message, type });
@@ -932,6 +939,19 @@ const FXTradingDashboard = () => {
   }, []);
 
   // Authentication functions
+  // Handle successful login from LoginModal (which handles its own auth)
+  const handleLoginSuccess = (user, token) => {
+    // Store token and user info
+    localStorage.setItem('auth_token', token);
+    localStorage.setItem('auth_user', JSON.stringify(user));
+
+    setAuthToken(token);
+    setCurrentUser(user);
+    setIsAuthenticated(true);
+
+    showNotification(`Welcome back, ${user.username}!`, 'success');
+  };
+
   const handleLogin = async (username, password, turnstileToken = null) => {
     try {
       // Check if API URL is configured
@@ -993,15 +1013,15 @@ const FXTradingDashboard = () => {
 
   // API helper function
   const apiCall = async (endpoint, method = 'GET', body = null) => {
-    if (!apiUrl || !apiKey) {
-      throw new Error('API not configured');
+    if (!apiUrl || !authToken) {
+      throw new Error('API not configured or not authenticated');
     }
 
     const options = {
       method,
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Key': apiKey
+        'Authorization': `Bearer ${authToken}`
       }
     };
 
@@ -1019,16 +1039,19 @@ const FXTradingDashboard = () => {
   };
 
   // Load data from API
-  const loadDataFromAPI = async (url, key) => {
+  const loadDataFromAPI = async (url, token) => {
     try {
       setIsLoading(true);
+
+      // Use JWT token for authentication
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      };
+
       const [tradesData, accountsData] = await Promise.all([
-        fetch(`${url}/api/trades`, {
-          headers: { 'X-API-Key': key }
-        }).then(r => r.json()),
-        fetch(`${url}/api/accounts`, {
-          headers: { 'X-API-Key': key }
-        }).then(r => r.json())
+        fetch(`${url}/api/trades`, { headers }).then(r => r.json()),
+        fetch(`${url}/api/accounts`, { headers }).then(r => r.json())
       ]);
       
       setTrades(tradesData.map(t => ({
@@ -1167,6 +1190,7 @@ const FXTradingDashboard = () => {
       // Close modals with Escape
       if (e.key === 'Escape') {
         if (showShortcutsHelp) setShowShortcutsHelp(false);
+        else if (showCalculator) setShowCalculator(false);
         else if (showSettings) setShowSettings(false);
         else if (showEditTrade) setShowEditTrade(false);
         else if (showDeleteConfirm) setShowDeleteConfirm(false);
@@ -1226,6 +1250,13 @@ const FXTradingDashboard = () => {
         return;
       }
 
+      // Toggle Calculator with C
+      if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setShowCalculator(!showCalculator);
+        return;
+      }
+
       // Previous page with Left Arrow
       if (e.key === 'ArrowLeft' && !e.ctrlKey && !e.metaKey && currentPage > 1) {
         e.preventDefault();
@@ -1246,7 +1277,7 @@ const FXTradingDashboard = () => {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [showShortcutsHelp, showSettings, showEditTrade, showDeleteConfirm, showManualEntry,
+  }, [showShortcutsHelp, showCalculator, showSettings, showEditTrade, showDeleteConfirm, showManualEntry,
       showUpload, showFilters, activeTab, currentPage, itemsPerPage, filteredAndSearchedTrades,
       currentUser]);
 
@@ -1261,9 +1292,12 @@ const FXTradingDashboard = () => {
       ? (winningTrades.length / filteredTrades.length * 100).toFixed(1)
       : 0;
 
-    const totalBalance = selectedAccount === 'all'
-      ? accounts.reduce((sum, acc) => sum + acc.balance, 0)
-      : accounts.find(acc => acc.id === parseInt(selectedAccount))?.balance || 0;
+    // Only show balance if user has trades, otherwise show 0 until accounts are connected
+    const totalBalance = filteredTrades.length === 0
+      ? 0
+      : selectedAccount === 'all'
+        ? accounts.reduce((sum, acc) => sum + acc.balance, 0)
+        : accounts.find(acc => acc.id === parseInt(selectedAccount))?.balance || 0;
 
     // Pair performance
     const pairPerformance = {};
@@ -1593,6 +1627,8 @@ const FXTradingDashboard = () => {
     if (!file) return;
 
     try {
+      // Dynamic import XLSX only when needed
+      const XLSX = await import('xlsx');
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
       const sheetName = workbook.SheetNames[0];
@@ -1612,7 +1648,7 @@ const FXTradingDashboard = () => {
 
       if (isOnline) {
         await apiCall('/api/trades/bulk', 'POST', { trades: newTrades });
-        await loadDataFromAPI(apiUrl, apiKey);
+        await loadDataFromAPI(apiUrl, authToken);
       } else {
         setTrades([...trades, ...newTrades.map((t, i) => ({ ...t, id: trades.length + i + 1, account: t.accountId }))]);
       }
@@ -1641,16 +1677,29 @@ const FXTradingDashboard = () => {
     };
 
     try {
+      let createdTradeId = null;
+
       if (isOnline) {
-        await apiCall('/api/trades', 'POST', newTrade);
-        await loadDataFromAPI(apiUrl, apiKey);
+        const response = await apiCall('/api/trades', 'POST', newTrade);
+        if (response.success && response.trade) {
+          createdTradeId = response.trade.id;
+        }
+        await loadDataFromAPI(apiUrl, authToken);
       } else {
-        setTrades([...trades, { ...newTrade, id: trades.length + 1, account: newTrade.accountId }]);
+        const newId = trades.length + 1;
+        setTrades([...trades, { ...newTrade, id: newId, account: newTrade.accountId }]);
+        createdTradeId = newId;
       }
 
       setShowManualEntry(false);
-      showNotification('Trade added successfully', 'success');
-      
+      showNotification('Trade added successfully! Add a screenshot?', 'success');
+
+      // Show screenshot prompt
+      if (createdTradeId) {
+        setNewTradeId(createdTradeId);
+        setTimeout(() => setShowScreenshotPrompt(true), 300);
+      }
+
       setManualTrade({
         date: new Date().toISOString().split('T')[0],
         pair: 'EUR/USD',
@@ -1684,7 +1733,7 @@ const FXTradingDashboard = () => {
     try {
       if (isOnline) {
         await apiCall(`/api/trades/${selectedTrade.id}`, 'PUT', updatedTrade);
-        await loadDataFromAPI(apiUrl, apiKey);
+        await loadDataFromAPI(apiUrl, authToken);
       } else {
         setTrades(trades.map(t => 
           t.id === selectedTrade.id ? { ...t, ...updatedTrade, account: updatedTrade.accountId } : t
@@ -1705,7 +1754,7 @@ const FXTradingDashboard = () => {
     try {
       if (isOnline) {
         await apiCall(`/api/trades/${selectedTrade.id}`, 'DELETE');
-        await loadDataFromAPI(apiUrl, apiKey);
+        await loadDataFromAPI(apiUrl, authToken);
       } else {
         setTrades(trades.filter(t => t.id !== selectedTrade.id));
       }
@@ -1721,8 +1770,19 @@ const FXTradingDashboard = () => {
   const updateTradeJournal = async (tradeId, journalData) => {
     try {
       if (isOnline) {
-        await apiCall(`/api/trades/${tradeId}/journal`, 'PATCH', journalData);
-        await loadDataFromAPI(apiUrl, apiKey);
+        // Convert camelCase to snake_case for API
+        const apiPayload = {
+          notes: journalData.notes,
+          tags: journalData.tags,
+          rating: journalData.rating,
+          setupQuality: journalData.setupQuality,
+          executionQuality: journalData.executionQuality,
+          emotions: journalData.emotions,
+          lessonsLearned: journalData.lessonsLearned,
+          screenshotUrl: journalData.screenshotUrl
+        };
+        await apiCall(`/api/trades/${tradeId}/journal`, 'PATCH', apiPayload);
+        await loadDataFromAPI(apiUrl, authToken);
         showNotification('Journal updated successfully', 'success');
       } else {
         // Update local state in offline mode
@@ -1763,22 +1823,28 @@ const FXTradingDashboard = () => {
            filters.minPnl !== '' || filters.maxPnl !== '' || filters.searchTerm;
   };
 
-  const handleExport = () => {
-    const exportData = filteredAndSearchedTrades.map(t => ({
-      Date: t.date,
-      Pair: t.pair,
-      Type: t.type,
-      Size: t.size,
-      'Entry Price': t.entryPrice,
-      'Exit Price': t.exitPrice,
-      'P&L': t.pnl,
-      Account: accounts.find(a => a.id === t.account)?.name || 'Unknown'
-    }));
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Trades');
-    XLSX.writeFile(wb, `fx-trades-${new Date().toISOString().split('T')[0]}.xlsx`);
-    showNotification('Data exported successfully', 'success');
+  const handleExport = async () => {
+    try {
+      // Dynamic import XLSX only when exporting
+      const XLSX = await import('xlsx');
+      const exportData = filteredAndSearchedTrades.map(t => ({
+        Date: t.date,
+        Pair: t.pair,
+        Type: t.type,
+        Size: t.size,
+        'Entry Price': t.entryPrice,
+        'Exit Price': t.exitPrice,
+        'P&L': t.pnl,
+        Account: accounts.find(a => a.id === t.account)?.name || 'Unknown'
+      }));
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Trades');
+      XLSX.writeFile(wb, `fx-trades-${new Date().toISOString().split('T')[0]}.xlsx`);
+      showNotification('Data exported successfully', 'success');
+    } catch (error) {
+      showNotification('Export failed', 'error');
+    }
   };
 
   const saveApiConfig = () => {
@@ -1786,40 +1852,40 @@ const FXTradingDashboard = () => {
     localStorage.setItem('fx_api_key', apiKey);
     setShowSettings(false);
     if (apiUrl && apiKey) {
-      loadDataFromAPI(apiUrl, apiKey);
+      loadDataFromAPI(apiUrl, authToken);
     }
   };
 
   // Show loading while checking authentication
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="text-white text-xl">Loading...</div>
-      </div>
+      <Suspense fallback={<div className="min-h-screen bg-slate-950" />}>
+        <ForexLoader message="Initializing FX Trading Platform" />
+      </Suspense>
     );
   }
 
   // Show landing page if not authenticated
   if (!isAuthenticated) {
     return (
-      <>
+      <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="text-white text-xl">Loading...</div></div>}>
         <LandingPage onLoginClick={() => setShowLoginModal(true)} />
         <LoginModal
           isOpen={showLoginModal}
           onClose={() => setShowLoginModal(false)}
-          onLogin={handleLogin}
+          onLogin={handleLoginSuccess}
           apiUrl={apiUrl}
         />
-      </>
+      </Suspense>
     );
   }
 
   // Show loading while fetching data
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="text-white text-xl">Loading your trading data...</div>
-      </div>
+      <Suspense fallback={<div className="min-h-screen bg-slate-950" />}>
+        <ForexLoader message="Loading your trading data..." />
+      </Suspense>
     );
   }
 
@@ -2419,82 +2485,9 @@ const FXTradingDashboard = () => {
 
         {/* Analytics Tab */}
         {activeTab === 'analytics' && (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            {/* Top Performing Pairs */}
-            <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-              <div className="flex items-center gap-3 mb-6">
-                <BarChart3 className="text-purple-400" size={24} />
-                <h2 className="text-xl font-bold text-white">Currency Pair Analysis</h2>
-              </div>
-              <div className="space-y-4">
-                {analytics.topPairs.map(([pair, data], index) => (
-                  <div key={pair} className="p-4 bg-white/5 rounded-xl border border-white/10 hover:border-purple-500/30 transition-all">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold ${
-                          data.pnl >= 0 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-                        }`}>
-                          #{index + 1}
-                        </div>
-                        <div>
-                          <div className="text-white font-bold text-lg">{pair}</div>
-                          <div className="text-slate-400 text-sm">{data.count} trades</div>
-                        </div>
-                      </div>
-                      <div className={`text-right`}>
-                        <div className={`text-2xl font-bold ${data.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          {data.pnl >= 0 ? '+' : ''}${data.pnl.toFixed(2)}
-                        </div>
-                        <div className="text-slate-400 text-sm">
-                          {data.wins}W / {data.losses}L
-                        </div>
-                      </div>
-                    </div>
-                    <div className="w-full bg-slate-800 rounded-full h-2">
-                      <div 
-                        className={`h-2 rounded-full ${data.pnl >= 0 ? 'bg-green-500' : 'bg-red-500'}`}
-                        style={{ width: `${(data.wins / data.count) * 100}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Daily P&L Bar Chart */}
-            <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
-              <div className="flex items-center gap-3 mb-6">
-                <BarChart3 className="text-blue-400" size={24} />
-                <h2 className="text-xl font-bold text-white">Daily Performance</h2>
-              </div>
-              {analytics.chartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={400}>
-                  <BarChart data={analytics.chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
-                    <XAxis dataKey="date" stroke="#94a3b8" style={{ fontSize: '12px' }} />
-                    <YAxis stroke="#94a3b8" style={{ fontSize: '12px' }} />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: '#1e293b', 
-                        border: '1px solid #334155', 
-                        borderRadius: '12px',
-                        color: '#fff'
-                      }} 
-                    />
-                    <Bar dataKey="pnl" fill="#8b5cf6" radius={[8, 8, 0, 0]}>
-                      {analytics.chartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.pnl >= 0 ? '#10b981' : '#ef4444'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-[400px] flex items-center justify-center text-slate-400">
-                  No trade data available
-                </div>
-              )}
-            </div>
-          </div>
+          <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Analytics...</div></div>}>
+            <AnalyticsTab analytics={analytics} />
+          </Suspense>
         )}
 
         {/* All Trades Tab */}
@@ -3006,27 +2999,33 @@ const FXTradingDashboard = () => {
 
         {/* Journal Tab */}
         {activeTab === 'journal' && (
-          <JournalTab
-            trades={sortedTrades}
-            onUpdate={updateTradeJournal}
-            apiUrl={apiUrl}
-          />
+          <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Journal...</div></div>}>
+            <JournalTab
+              trades={sortedTrades}
+              onUpdate={updateTradeJournal}
+              apiUrl={apiUrl}
+            />
+          </Suspense>
         )}
 
         {/* Psychology Coach Tab */}
         {activeTab === 'psychology' && (
-          <PsychologyCoach
-            trades={sortedTrades}
-          />
+          <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Psychology Coach...</div></div>}>
+            <PsychologyCoach
+              trades={sortedTrades}
+            />
+          </Suspense>
         )}
 
         {/* Admin Portal Tab */}
         {activeTab === 'admin' && currentUser?.role === 'admin' && (
-          <AdminPortal
-            apiUrl={apiUrl}
-            apiKey={apiKey}
-            currentUser={currentUser}
-          />
+          <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Admin Portal...</div></div>}>
+            <AdminPortal
+              apiUrl={apiUrl}
+              apiKey={apiKey}
+              currentUser={currentUser}
+            />
+          </Suspense>
         )}
 
         {/* Keyboard Shortcuts Help Modal */}
@@ -3092,6 +3091,10 @@ const FXTradingDashboard = () => {
                     <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
                       <span className="text-slate-300">Toggle Filters</span>
                       <kbd className="px-3 py-1 bg-slate-700 text-white rounded text-sm font-mono border border-slate-600">F</kbd>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
+                      <span className="text-slate-300">Position Size Calculator</span>
+                      <kbd className="px-3 py-1 bg-slate-700 text-white rounded text-sm font-mono border border-slate-600">C</kbd>
                     </div>
                   </div>
                 </div>
@@ -3245,14 +3248,40 @@ const FXTradingDashboard = () => {
         {/* Manual Entry Modal */}
         {showManualEntry && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-            <div className="bg-slate-900 rounded-2xl p-8 max-w-md w-full border border-white/10 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+            <div className="bg-slate-900 rounded-2xl p-8 max-w-7xl w-full border border-white/10 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-2xl font-bold text-white">Add New Trade</h3>
+                <div>
+                  <h3 className="text-2xl font-bold text-white">Add New Trade</h3>
+                  <p className="text-slate-400 text-sm mt-1">View live chart while entering trade details</p>
+                </div>
                 <button onClick={() => setShowManualEntry(false)} className="text-slate-400 hover:text-white transition-colors">
                   <X size={24} />
                 </button>
               </div>
-              <div className="space-y-4">
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Left: Trade Form */}
+                <div>
+              {/* Trade Template Manager */}
+              <Suspense fallback={<div className="h-20 bg-slate-800/30 rounded-lg animate-pulse" />}>
+                <TradeTemplateManager
+                  currentTrade={manualTrade}
+                  onLoadTemplate={(template) => {
+                    setManualTrade({
+                      ...manualTrade,
+                      pair: template.pair,
+                      type: template.type,
+                      size: template.size,
+                      accountId: template.accountId
+                    });
+                    showNotification(`Template "${template.name}" loaded!`, 'success');
+                  }}
+                  accounts={accounts}
+                  theme={theme}
+                />
+              </Suspense>
+
+              <div className="space-y-4 mt-4">
                 <div>
                   <label className="block text-slate-300 mb-2 font-medium">Date</label>
                   <input
@@ -3359,19 +3388,60 @@ const FXTradingDashboard = () => {
                 </button>
               </div>
             </div>
+
+            {/* Right: TradingView Chart */}
+            <div className="hidden lg:block">
+              <div className="bg-slate-800/30 rounded-xl p-4 border border-slate-700/50">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-white font-medium flex items-center gap-2">
+                    <BarChart3 size={18} className="text-purple-400" />
+                    Live Chart
+                  </h4>
+                  {manualTrade.pair && (
+                    <span className="text-sm text-slate-400 bg-slate-800 px-3 py-1 rounded-full">
+                      {manualTrade.pair}
+                    </span>
+                  )}
+                </div>
+                <Suspense fallback={
+                  <div className="flex items-center justify-center p-8 bg-slate-800/50 rounded-lg" style={{ height: '500px' }}>
+                    <div className="text-slate-400 text-sm">Loading chart...</div>
+                  </div>
+                }>
+                  <TradingViewWidget
+                    symbol={manualTrade.pair || 'EURUSD'}
+                    interval="60"
+                    theme={theme}
+                    height={500}
+                  />
+                </Suspense>
+                <p className="text-xs text-slate-500 mt-2 text-center">
+                  Chart updates automatically when you change the currency pair
+                </p>
+              </div>
+            </div>
+          </div>
+            </div>
           </div>
         )}
 
         {/* Edit Trade Modal */}
         {showEditTrade && selectedTrade && (
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-            <div className="bg-slate-900 rounded-2xl p-8 max-w-md w-full border border-white/10 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+            <div className="bg-slate-900 rounded-2xl p-8 max-w-7xl w-full border border-white/10 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-2xl font-bold text-white">Edit Trade</h3>
+                <div>
+                  <h3 className="text-2xl font-bold text-white">Edit Trade</h3>
+                  <p className="text-slate-400 text-sm mt-1">Modify trade details with live chart reference</p>
+                </div>
                 <button onClick={() => { setShowEditTrade(false); setSelectedTrade(null); }} className="text-slate-400 hover:text-white transition-colors">
                   <X size={24} />
                 </button>
               </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Left: Trade Form */}
+                <div>
               <div className="space-y-4">
                 <div>
                   <label className="block text-slate-300 mb-2 font-medium">Date</label>
@@ -3479,6 +3549,40 @@ const FXTradingDashboard = () => {
                 </button>
               </div>
             </div>
+
+            {/* Right: TradingView Chart */}
+            <div className="hidden lg:block">
+              <div className="bg-slate-800/30 rounded-xl p-4 border border-slate-700/50">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-white font-medium flex items-center gap-2">
+                    <BarChart3 size={18} className="text-blue-400" />
+                    Live Chart
+                  </h4>
+                  {selectedTrade.pair && (
+                    <span className="text-sm text-slate-400 bg-slate-800 px-3 py-1 rounded-full">
+                      {selectedTrade.pair}
+                    </span>
+                  )}
+                </div>
+                <Suspense fallback={
+                  <div className="flex items-center justify-center p-8 bg-slate-800/50 rounded-lg" style={{ height: '500px' }}>
+                    <div className="text-slate-400 text-sm">Loading chart...</div>
+                  </div>
+                }>
+                  <TradingViewWidget
+                    symbol={selectedTrade.pair || 'EURUSD'}
+                    interval="60"
+                    theme={theme}
+                    height={500}
+                  />
+                </Suspense>
+                <p className="text-xs text-slate-500 mt-2 text-center">
+                  Chart updates automatically when you change the currency pair
+                </p>
+              </div>
+            </div>
+          </div>
+            </div>
           </div>
         )}
 
@@ -3541,6 +3645,83 @@ const FXTradingDashboard = () => {
             </div>
           </div>
         )}
+
+        {/* Screenshot Capture Prompt (Auto-opens after trade creation) */}
+        {showScreenshotPrompt && newTradeId && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+            <div className="bg-slate-900 rounded-2xl p-8 max-w-2xl w-full border border-white/10 shadow-2xl animate-in zoom-in-95 duration-200">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-2xl font-bold text-white flex items-center gap-2">
+                    <Camera size={24} className="text-purple-400" />
+                    Add Trade Screenshot
+                  </h3>
+                  <p className="text-slate-400 text-sm mt-1">Capture and upload your chart for better trade analysis</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowScreenshotPrompt(false);
+                    setNewTradeId(null);
+                  }}
+                  className="text-slate-400 hover:text-white transition-colors"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <Suspense fallback={
+                <div className="flex items-center justify-center p-8">
+                  <Loader className="text-purple-400 animate-spin" size={40} />
+                </div>
+              }>
+                <QuickScreenshotCapture
+                  tradeId={newTradeId}
+                  apiUrl={apiUrl}
+                  authToken={authToken}
+                  theme={theme}
+                  autoFocus={true}
+                  onScreenshotReady={(url) => {
+                    showNotification('Screenshot uploaded successfully!', 'success');
+                    loadDataFromAPI(apiUrl, authToken);
+                  }}
+                  onClose={() => {
+                    setShowScreenshotPrompt(false);
+                    setNewTradeId(null);
+                  }}
+                />
+              </Suspense>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowScreenshotPrompt(false);
+                    setNewTradeId(null);
+                  }}
+                  className="flex-1 px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl transition-all font-medium"
+                >
+                  Skip for Now
+                </button>
+              </div>
+
+              <div className="mt-4 p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                <p className="text-purple-300 text-sm flex items-center gap-2">
+                  <Info size={14} />
+                  <span>💡 <strong>Pro Tip:</strong> Take a screenshot of your chart (PrtScn), then paste it here with Ctrl+V for quick capture!</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Position Size Calculator (Floating Widget) */}
+        <Suspense fallback={null}>
+          <PositionSizeCalculator
+            isVisible={showCalculator}
+            onClose={() => setShowCalculator(false)}
+            accountBalance={analytics.totalBalance || 10000}
+            theme={theme}
+          />
+        </Suspense>
       </div>
     </div>
   );

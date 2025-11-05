@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Search, SlidersHorizontal, X, Calendar, DollarSign, Save, Upload, Image as ImageIcon, BookOpen, TrendingUp, ChevronLeft, ChevronRight, Star as StarIcon, Tag as TagIcon, Smile as SmileIcon } from 'lucide-react';
 import StarRating from './StarRating';
 import TagSelector from './TagSelector';
@@ -70,15 +70,35 @@ const JournalTab = ({ trades, onUpdate, apiUrl }) => {
     setSelectedTrade(trade);
     setJournalData({
       notes: trade.notes || '',
-      tags: safeJsonParse(trade.tags, []),
+      tags: Array.isArray(trade.tags) ? trade.tags : safeJsonParse(trade.tags, []),
       rating: trade.rating || 0,
-      setup_quality: trade.setup_quality || 0,
-      execution_quality: trade.execution_quality || 0,
-      emotions: safeJsonParse(trade.emotions, []),
-      lessons_learned: trade.lessons_learned || '',
-      screenshot_url: trade.screenshot_url || ''
+      setupQuality: trade.setupQuality || 0,
+      executionQuality: trade.executionQuality || 0,
+      emotions: Array.isArray(trade.emotions) ? trade.emotions : safeJsonParse(trade.emotions, []),
+      lessonsLearned: trade.lessonsLearned || '',
+      screenshotUrl: trade.screenshotUrl || ''
     });
   };
+
+  // Update selected trade when trades prop changes (e.g., after save)
+  useEffect(() => {
+    if (selectedTrade) {
+      const updatedTrade = trades.find(t => t.id === selectedTrade.id);
+      if (updatedTrade) {
+        setSelectedTrade(updatedTrade);
+        setJournalData({
+          notes: updatedTrade.notes || '',
+          tags: Array.isArray(updatedTrade.tags) ? updatedTrade.tags : safeJsonParse(updatedTrade.tags, []),
+          rating: updatedTrade.rating || 0,
+          setupQuality: updatedTrade.setupQuality || 0,
+          executionQuality: updatedTrade.executionQuality || 0,
+          emotions: Array.isArray(updatedTrade.emotions) ? updatedTrade.emotions : safeJsonParse(updatedTrade.emotions, []),
+          lessonsLearned: updatedTrade.lessonsLearned || '',
+          screenshotUrl: updatedTrade.screenshotUrl || ''
+        });
+      }
+    }
+  }, [trades]);
 
   const saveJournal = async () => {
     if (!selectedTrade) return;
@@ -86,19 +106,18 @@ const JournalTab = ({ trades, onUpdate, apiUrl }) => {
     setSaving(true);
     try {
       const payload = {
-        ...journalData,
-        tags: JSON.stringify(journalData.tags || []),
-        emotions: JSON.stringify(journalData.emotions || [])
+        notes: journalData.notes,
+        tags: journalData.tags || [],
+        rating: journalData.rating,
+        setupQuality: journalData.setupQuality,
+        executionQuality: journalData.executionQuality,
+        emotions: journalData.emotions || [],
+        lessonsLearned: journalData.lessonsLearned,
+        screenshotUrl: journalData.screenshotUrl
       };
 
       await onUpdate(selectedTrade.id, payload);
-
-      // Refresh selected trade to show updated data
-      const updatedTrade = {
-        ...selectedTrade,
-        ...payload
-      };
-      setSelectedTrade(updatedTrade);
+      // Note: selectedTrade and journalData will be updated by useEffect when trades prop changes
     } catch (error) {
       console.error('Failed to save journal:', error);
     } finally {
@@ -124,7 +143,7 @@ const JournalTab = ({ trades, onUpdate, apiUrl }) => {
 
       const data = await response.json();
       if (data.success) {
-        setJournalData({ ...journalData, screenshot_url: data.url });
+        setJournalData({ ...journalData, screenshotUrl: data.url });
       }
     } catch (error) {
       console.error('Screenshot upload failed:', error);
@@ -367,7 +386,7 @@ const JournalTab = ({ trades, onUpdate, apiUrl }) => {
         {/* Right: Journal Entry */}
         <div className="lg:col-span-2">
           {selectedTrade ? (
-            <div className="bg-slate-800/30 border border-slate-700 rounded-xl">
+            <div className="bg-slate-800/30 border border-slate-700 rounded-xl overflow-visible">
               {/* Trade Header */}
               <div className="p-4 border-b border-slate-700">
                 <div className="flex items-start justify-between">
@@ -455,10 +474,10 @@ const JournalTab = ({ trades, onUpdate, apiUrl }) => {
               </div>
 
               {/* Section Content */}
-              <div className="p-6 max-h-[500px] overflow-y-auto">
+              <div className="p-6">
                 {/* Ratings Section */}
                 {activeSection === 'ratings' && (
-                  <div className="space-y-6">
+                  <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2">
                     <div>
                       <label className="block text-slate-300 text-sm font-medium mb-3">Overall Rating</label>
                       <StarRating
@@ -472,16 +491,16 @@ const JournalTab = ({ trades, onUpdate, apiUrl }) => {
                       <div>
                         <label className="block text-slate-300 text-sm font-medium mb-3">Setup Quality</label>
                         <StarRating
-                          rating={journalData.setup_quality || 0}
-                          onRatingChange={(value) => setJournalData({ ...journalData, setup_quality: value })}
+                          rating={journalData.setupQuality || 0}
+                          onRatingChange={(value) => setJournalData({ ...journalData, setupQuality: value })}
                           size={24}
                         />
                       </div>
                       <div>
                         <label className="block text-slate-300 text-sm font-medium mb-3">Execution Quality</label>
                         <StarRating
-                          rating={journalData.execution_quality || 0}
-                          onRatingChange={(value) => setJournalData({ ...journalData, execution_quality: value })}
+                          rating={journalData.executionQuality || 0}
+                          onRatingChange={(value) => setJournalData({ ...journalData, executionQuality: value })}
                           size={24}
                         />
                       </div>
@@ -500,7 +519,7 @@ const JournalTab = ({ trades, onUpdate, apiUrl }) => {
                           className="hidden"
                         />
                       </label>
-                      {journalData.screenshot_url && (
+                      {journalData.screenshotUrl && (
                         <div className="mt-2 flex items-center gap-2 text-green-400 text-sm">
                           <ImageIcon size={14} />
                           Screenshot uploaded
@@ -512,7 +531,7 @@ const JournalTab = ({ trades, onUpdate, apiUrl }) => {
 
                 {/* Tags & Emotions Section */}
                 {activeSection === 'tags' && (
-                  <div className="space-y-6">
+                  <div className="space-y-6 min-h-[500px]">
                     <div>
                       <label className="block text-slate-300 text-sm font-medium mb-3">Strategy Tags</label>
                       <TagSelector
@@ -533,7 +552,7 @@ const JournalTab = ({ trades, onUpdate, apiUrl }) => {
 
                 {/* Notes Section */}
                 {activeSection === 'notes' && (
-                  <div className="space-y-6">
+                  <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2">
                     <div>
                       <label className="block text-slate-300 text-sm font-medium mb-3">Trade Notes</label>
                       <textarea
@@ -548,8 +567,8 @@ const JournalTab = ({ trades, onUpdate, apiUrl }) => {
                     <div>
                       <label className="block text-slate-300 text-sm font-medium mb-3">Lessons Learned</label>
                       <textarea
-                        value={journalData.lessons_learned || ''}
-                        onChange={(e) => setJournalData({ ...journalData, lessons_learned: e.target.value })}
+                        value={journalData.lessonsLearned || ''}
+                        onChange={(e) => setJournalData({ ...journalData, lessonsLearned: e.target.value })}
                         placeholder="What did you learn from this trade? What would you do differently?"
                         rows={6}
                         className="w-full px-4 py-3 bg-slate-900/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"

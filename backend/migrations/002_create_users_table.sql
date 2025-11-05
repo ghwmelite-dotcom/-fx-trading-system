@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 
 -- Add user_id foreign key to trades table
-ALTER TABLE trades ADD COLUMN user_id INTEGER;
+-- ALTER TABLE trades ADD COLUMN user_id INTEGER;  -- Already exists in production
 
 -- Create index for faster queries
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
@@ -51,7 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 
 -- Insert default admin user (password: admin123 - CHANGE THIS IN PRODUCTION!)
 -- Password hash is SHA-256 hash of 'admin123'
-INSERT INTO users (username, email, password_hash, role, full_name, is_active)
+INSERT OR IGNORE INTO users (username, email, password_hash, role, full_name, is_active)
 VALUES (
   'admin',
   'admin@fxtrading.com',

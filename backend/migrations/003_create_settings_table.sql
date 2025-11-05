@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS platform_settings (
 CREATE INDEX IF NOT EXISTS idx_settings_key ON platform_settings(setting_key);
 
 -- Insert default platform settings
-INSERT INTO platform_settings (setting_key, setting_value, setting_type, description)
+INSERT OR IGNORE INTO platform_settings (setting_key, setting_value, setting_type, description)
 VALUES
   ('platform_name', 'FX Trading Dashboard', 'string', 'Platform name displayed in header and title'),
   ('logo_url', NULL, 'image', 'Platform logo image URL (stored in R2)'),
