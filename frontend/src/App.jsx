@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, lazy, Suspense } from 'react';
-import { Upload, TrendingUp, TrendingDown, DollarSign, Activity, BarChart3, Calendar, Plus, Download, Settings, Wifi, WifiOff, X, Check, AlertCircle, Zap, Target, Edit, Trash2, Filter, Search, Star, Tag, Smile, LogOut, User, Shield, Moon, Sun, Camera, Loader, Info } from 'lucide-react';
+import { Upload, TrendingUp, TrendingDown, DollarSign, Activity, BarChart3, Calendar, Plus, Download, Settings, Wifi, WifiOff, X, Check, AlertCircle, Zap, Target, Edit, Trash2, Filter, Search, Star, Tag, Smile, LogOut, User, Shield, Moon, Sun, Camera, Loader, Info, Brain } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import ScreenshotUpload from './ScreenshotUpload';
 
@@ -829,6 +829,8 @@ const FXTradingDashboard = () => {
   const [showOneClickTrading, setShowOneClickTrading] = useState(false);
   const [showTrailingStop, setShowTrailingStop] = useState(false);
   const [partialCloseTarget, setPartialCloseTarget] = useState(null);
+  const [showAIReview, setShowAIReview] = useState(false);
+  const [tradeToReview, setTradeToReview] = useState(null);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -1596,6 +1598,7 @@ const FXTradingDashboard = () => {
       chartData: cumulativeData,
       pieData,
       totalTrades: filteredTrades.length,
+      trades: filteredTrades,
       // Advanced Analytics
       timeOfDayAnalysis,
       weekdayAnalysis,
@@ -2806,6 +2809,13 @@ const FXTradingDashboard = () => {
                 </div>
               )}
             </div>
+
+            {/* Economic Calendar */}
+            <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10 mt-8">
+              <Suspense fallback={<div className="flex items-center justify-center min-h-[200px]"><div className="text-slate-400">Loading Calendar...</div></div>}>
+                <EconomicCalendar theme="dark" />
+              </Suspense>
+            </div>
           </>
         )}
 
@@ -2818,6 +2828,7 @@ const FXTradingDashboard = () => {
 
         {/* All Trades Tab */}
         {activeTab === 'trades' && (
+          <>
           <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
@@ -3000,6 +3011,17 @@ const FXTradingDashboard = () => {
               </div>
             )}
           </div>
+
+          {/* Trade Copier */}
+          <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10 mt-6">
+            <Suspense fallback={<div className="flex items-center justify-center min-h-[200px]"><div className="text-slate-400">Loading Trade Copier...</div></div>}>
+              <TradeCopier accounts={accounts} onCopyTrade={(copiedTrade) => {
+                setTrades(prev => [...prev, copiedTrade]);
+                saveTrades([...trades, copiedTrade]);
+              }} theme="dark" />
+            </Suspense>
+          </div>
+          </>
         )}
 
         {/* Risk Analysis Tab */}
@@ -3715,6 +3737,16 @@ const FXTradingDashboard = () => {
                   Cancel
                 </button>
                 <button
+                  onClick={() => {
+                    setTradeToReview(manualTrade);
+                    setShowAIReview(true);
+                  }}
+                  className="flex-1 px-6 py-3 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 text-white rounded-xl transition-all font-medium shadow-lg flex items-center justify-center gap-2"
+                >
+                  <Brain size={18} />
+                  AI Review
+                </button>
+                <button
                   onClick={handleManualSubmit}
                   className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-xl transition-all font-medium shadow-lg"
                 >
@@ -4098,6 +4130,20 @@ const FXTradingDashboard = () => {
             theme={theme}
           />
         </Suspense>
+
+        {/* AI Trade Review Modal */}
+        {showAIReview && tradeToReview && (
+          <Suspense fallback={null}>
+            <AITradeReview
+              trade={tradeToReview}
+              onClose={() => {
+                setShowAIReview(false);
+                setTradeToReview(null);
+              }}
+              theme="dark"
+            />
+          </Suspense>
+        )}
       </div>
     </div>
   );

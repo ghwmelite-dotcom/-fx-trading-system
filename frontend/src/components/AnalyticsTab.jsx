@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, Suspense, lazy } from 'react';
 import {
-  BarChart3, Clock, Calendar, TrendingDown, Target, Award,
+  BarChart3, Clock, Calendar, TrendingDown, TrendingUp, Target, Award,
   AlertCircle, Activity, Sun, Moon, Globe, Zap
 } from 'lucide-react';
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar, ComposedChart,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend
 } from 'recharts';
+
+const CorrelationMatrix = lazy(() => import('./CorrelationMatrix'));
 
 const AnalyticsTab = ({ analytics }) => {
   const [activeTab, setActiveTab] = useState('overview');
@@ -15,7 +17,8 @@ const AnalyticsTab = ({ analytics }) => {
     { id: 'overview', label: 'Overview', icon: BarChart3 },
     { id: 'time', label: 'Time Analysis', icon: Clock },
     { id: 'performance', label: 'Performance', icon: TrendingDown },
-    { id: 'patterns', label: 'Patterns', icon: Target }
+    { id: 'patterns', label: 'Patterns', icon: Target },
+    { id: 'correlation', label: 'Correlation', icon: TrendingUp }
   ];
 
   // Color schemes
@@ -534,6 +537,13 @@ const AnalyticsTab = ({ analytics }) => {
       {activeTab === 'time' && renderTimeAnalysis()}
       {activeTab === 'performance' && renderPerformance()}
       {activeTab === 'patterns' && renderPatterns()}
+      {activeTab === 'correlation' && (
+        <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
+          <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Correlation Matrix...</div></div>}>
+            <CorrelationMatrix trades={analytics.trades || []} theme="dark" />
+          </Suspense>
+        </div>
+      )}
     </div>
   );
 };
