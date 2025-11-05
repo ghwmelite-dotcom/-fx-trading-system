@@ -16,6 +16,9 @@ const TradingViewWidget = lazy(() => import('./components/TradingViewWidget'));
 const PositionSizeCalculator = lazy(() => import('./components/PositionSizeCalculator'));
 const QuickScreenshotCapture = lazy(() => import('./components/QuickScreenshotCapture'));
 const TradeTemplateManager = lazy(() => import('./components/TradeTemplateManager'));
+const OneClickTrading = lazy(() => import('./components/OneClickTrading'));
+const PartialCloseModal = lazy(() => import('./components/PartialCloseModal'));
+const TrailingStopVisualizer = lazy(() => import('./components/TrailingStopVisualizer'));
 
 const COLORS = ['#8b5cf6', '#ec4899', '#06b6d4', '#10b981', '#f59e0b', '#ef4444'];
 
@@ -819,6 +822,9 @@ const FXTradingDashboard = () => {
   const [showCalculator, setShowCalculator] = useState(false);
   const [showScreenshotPrompt, setShowScreenshotPrompt] = useState(false);
   const [newTradeId, setNewTradeId] = useState(null);
+  const [showOneClickTrading, setShowOneClickTrading] = useState(false);
+  const [showTrailingStop, setShowTrailingStop] = useState(false);
+  const [partialCloseTarget, setPartialCloseTarget] = useState(null);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -1191,6 +1197,9 @@ const FXTradingDashboard = () => {
       if (e.key === 'Escape') {
         if (showShortcutsHelp) setShowShortcutsHelp(false);
         else if (showCalculator) setShowCalculator(false);
+        else if (showOneClickTrading) setShowOneClickTrading(false);
+        else if (showTrailingStop) setShowTrailingStop(false);
+        else if (partialCloseTarget) setPartialCloseTarget(null);
         else if (showSettings) setShowSettings(false);
         else if (showEditTrade) setShowEditTrade(false);
         else if (showDeleteConfirm) setShowDeleteConfirm(false);
@@ -1257,6 +1266,20 @@ const FXTradingDashboard = () => {
         return;
       }
 
+      // Toggle One-Click Trading with Q
+      if ((e.key === 'q' || e.key === 'Q') && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setShowOneClickTrading(!showOneClickTrading);
+        return;
+      }
+
+      // Toggle Trailing Stop with T
+      if ((e.key === 't' || e.key === 'T') && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setShowTrailingStop(!showTrailingStop);
+        return;
+      }
+
       // Previous page with Left Arrow
       if (e.key === 'ArrowLeft' && !e.ctrlKey && !e.metaKey && currentPage > 1) {
         e.preventDefault();
@@ -1277,7 +1300,7 @@ const FXTradingDashboard = () => {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [showShortcutsHelp, showCalculator, showSettings, showEditTrade, showDeleteConfirm, showManualEntry,
+  }, [showShortcutsHelp, showCalculator, showOneClickTrading, showTrailingStop, partialCloseTarget, showSettings, showEditTrade, showDeleteConfirm, showManualEntry,
       showUpload, showFilters, activeTab, currentPage, itemsPerPage, filteredAndSearchedTrades,
       currentUser]);
 
@@ -1871,6 +1894,92 @@ const FXTradingDashboard = () => {
       e.target.value = '';
     } catch (error) {
       showNotification('Error importing file. Please check the format.', 'error');
+    }
+  };
+
+  // Handle one-click trade execution
+  const handleOneClickTrade = async (trade) => {
+    const newTrade = {
+      ...trade,
+      id: Date.now(),
+      outcome: 'pending',
+      pnl: 0,
+      entryPrice: 0,
+      exitPrice: 0,
+      commission: 0,
+      strategy: '',
+      emotion: 'neutral',
+      notes: trade.notes || '',
+      screenshot_url: null
+    };
+
+    if (isOnline && authToken) {
+      try {
+        const response = await apiCall('/api/trades', 'POST', newTrade);
+        if (response.success && response.trade) {
+          setTrades([...trades, response.trade]);
+          showNotification(`${trade.type.toUpperCase()} order opened: ${trade.pair} ${trade.size} lots`, 'success');
+        }
+      } catch (error) {
+        console.error('One-click trade error:', error);
+        showNotification('Failed to execute trade', 'error');
+      }
+    } else {
+      setTrades([...trades, newTrade]);
+      showNotification(`${trade.type.toUpperCase()} order opened (offline): ${trade.pair} ${trade.size} lots`, 'success');
+    }
+  };
+
+  // Handle partial close
+  const handlePartialClose = async ({ tradeId, closeLots, closePercent, remainingLots }) => {
+    const trade = trades.find(t => t.id === tradeId);
+    if (!trade) return;
+
+    // Create a new trade entry for the closed portion
+    const closedTrade = {
+      ...trade,
+      id: Date.now(),
+      size: closeLots,
+      notes: `Partial close (${closePercent.toFixed(0)}%) of trade #${tradeId}. ${trade.notes || ''}`.trim(),
+      date: new Date().toISOString().split('T')[0],
+      time: new Date().toTimeString().split(' ')[0].substring(0, 5)
+    };
+
+    // Update the original trade with remaining size
+    const updatedTrade = {
+      ...trade,
+      size: remainingLots,
+      notes: `${trade.notes || ''} [Partially closed: ${closeLots} lots at ${closePercent.toFixed(0)}%]`.trim()
+    };
+
+    if (isOnline && authToken) {
+      try {
+        // Save closed portion
+        const closeResponse = await apiCall('/api/trades', 'POST', closedTrade);
+        // Update original with remaining
+        const updateResponse = await apiCall(`/api/trades/${tradeId}`, 'PUT', updatedTrade);
+
+        if (closeResponse.success && updateResponse.success) {
+          const updatedTrades = trades.map(t =>
+            t.id === tradeId ? updateResponse.trade : t
+          );
+          if (closeResponse.trade) {
+            updatedTrades.push(closeResponse.trade);
+          }
+          setTrades(updatedTrades);
+          showNotification(`Closed ${closeLots} lots (${closePercent.toFixed(0)}%). ${remainingLots} lots remaining.`, 'success');
+        }
+      } catch (error) {
+        console.error('Partial close error:', error);
+        showNotification('Failed to close position', 'error');
+      }
+    } else {
+      const updatedTrades = trades.map(t =>
+        t.id === tradeId ? updatedTrade : t
+      );
+      updatedTrades.push(closedTrade);
+      setTrades(updatedTrades);
+      showNotification(`Closed ${closeLots} lots (${closePercent.toFixed(0)}%) - offline`, 'success');
     }
   };
 
@@ -3309,6 +3418,14 @@ const FXTradingDashboard = () => {
                       <span className="text-slate-300">Position Size Calculator</span>
                       <kbd className="px-3 py-1 bg-slate-700 text-white rounded text-sm font-mono border border-slate-600">C</kbd>
                     </div>
+                    <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
+                      <span className="text-slate-300">One-Click Trading Panel</span>
+                      <kbd className="px-3 py-1 bg-slate-700 text-white rounded text-sm font-mono border border-slate-600">Q</kbd>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
+                      <span className="text-slate-300">Trailing Stop Visualizer</span>
+                      <kbd className="px-3 py-1 bg-slate-700 text-white rounded text-sm font-mono border border-slate-600">T</kbd>
+                    </div>
                   </div>
                 </div>
 
@@ -3932,6 +4049,48 @@ const FXTradingDashboard = () => {
             isVisible={showCalculator}
             onClose={() => setShowCalculator(false)}
             accountBalance={analytics.totalBalance || 10000}
+            theme={theme}
+          />
+        </Suspense>
+
+        {/* One-Click Trading Panel */}
+        <Suspense fallback={null}>
+          <OneClickTrading
+            isVisible={showOneClickTrading}
+            onClose={() => setShowOneClickTrading(false)}
+            onExecuteTrade={handleOneClickTrade}
+            accounts={accounts}
+            theme={theme}
+          />
+        </Suspense>
+
+        {/* Trailing Stop Visualizer */}
+        {showTrailingStop && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+            <div className="bg-slate-900 rounded-2xl max-w-2xl w-full border border-white/10 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between p-6 border-b border-slate-700">
+                <h2 className="text-xl font-bold text-white">Trailing Stop Calculator</h2>
+                <button
+                  onClick={() => setShowTrailingStop(false)}
+                  className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+                >
+                  <X className="text-slate-400" size={20} />
+                </button>
+              </div>
+              <Suspense fallback={<div className="p-6 text-center text-slate-400">Loading...</div>}>
+                <TrailingStopVisualizer isEmbedded={true} theme={theme} />
+              </Suspense>
+            </div>
+          </div>
+        )}
+
+        {/* Partial Close Modal */}
+        <Suspense fallback={null}>
+          <PartialCloseModal
+            isOpen={!!partialCloseTarget}
+            onClose={() => setPartialCloseTarget(null)}
+            trade={partialCloseTarget}
+            onPartialClose={handlePartialClose}
             theme={theme}
           />
         </Suspense>
