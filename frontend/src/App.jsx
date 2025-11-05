@@ -19,6 +19,10 @@ const TradeTemplateManager = lazy(() => import('./components/TradeTemplateManage
 const OneClickTrading = lazy(() => import('./components/OneClickTrading'));
 const PartialCloseModal = lazy(() => import('./components/PartialCloseModal'));
 const TrailingStopVisualizer = lazy(() => import('./components/TrailingStopVisualizer'));
+const CorrelationMatrix = lazy(() => import('./components/CorrelationMatrix'));
+const TradeCopier = lazy(() => import('./components/TradeCopier'));
+const EconomicCalendar = lazy(() => import('./components/EconomicCalendar'));
+const AITradeReview = lazy(() => import('./components/AITradeReview'));
 
 const COLORS = ['#8b5cf6', '#ec4899', '#06b6d4', '#10b981', '#f59e0b', '#ef4444'];
 
