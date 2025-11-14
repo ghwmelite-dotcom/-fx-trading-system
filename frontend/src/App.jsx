@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, lazy, Suspense } from 'react';
-import { Upload, TrendingUp, TrendingDown, DollarSign, Activity, BarChart3, Calendar, Plus, Download, Settings, Wifi, WifiOff, X, Check, AlertCircle, Zap, Target, Edit, Trash2, Filter, Search, Star, Tag, Smile, LogOut, User, Shield, Moon, Sun, Camera, Loader, Info, Brain } from 'lucide-react';
+import { Upload, TrendingUp, TrendingDown, DollarSign, Activity, BarChart3, Calendar, Plus, Download, Settings, Wifi, WifiOff, X, Check, AlertCircle, Zap, Target, Edit, Trash2, Filter, Search, Star, Tag, Smile, LogOut, User, Shield, Moon, Sun, Camera, Loader, Info, Brain, Database, FlaskConical, LineChart as LineChartIcon } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import ScreenshotUpload from './ScreenshotUpload';
 
@@ -24,6 +24,9 @@ const TradeCopier = lazy(() => import('./components/TradeCopier'));
 const EconomicCalendar = lazy(() => import('./components/EconomicCalendar'));
 const AITradeReview = lazy(() => import('./components/AITradeReview'));
 const InstallPWA = lazy(() => import('./components/InstallPWA'));
+const DataManager = lazy(() => import('./components/DataManager'));
+const BacktestBuilder = lazy(() => import('./components/BacktestBuilder'));
+const BacktestResults = lazy(() => import('./components/BacktestResults'));
 
 const COLORS = ['#8b5cf6', '#ec4899', '#06b6d4', '#10b981', '#f59e0b', '#ef4444'];
 
@@ -2392,6 +2395,39 @@ const FXTradingDashboard = () => {
           >
             Trades
           </button>
+          <button
+            onClick={() => setActiveTab('backtest-data')}
+            className={`flex-1 px-3 sm:px-5 py-3 rounded-lg font-bold transition-all duration-200 text-sm sm:text-base ${
+              activeTab === 'backtest-data'
+                ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg'
+                : 'text-slate-100 hover:text-white hover:bg-slate-700/50'
+            }`}
+          >
+            <Database className="inline mr-1" size={16} />
+            Data
+          </button>
+          <button
+            onClick={() => setActiveTab('backtest-builder')}
+            className={`flex-1 px-3 sm:px-5 py-3 rounded-lg font-bold transition-all duration-200 text-sm sm:text-base ${
+              activeTab === 'backtest-builder'
+                ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg'
+                : 'text-slate-100 hover:text-white hover:bg-slate-700/50'
+            }`}
+          >
+            <FlaskConical className="inline mr-1" size={16} />
+            Backtest
+          </button>
+          <button
+            onClick={() => setActiveTab('backtest-results')}
+            className={`flex-1 px-3 sm:px-5 py-3 rounded-lg font-bold transition-all duration-200 text-sm sm:text-base ${
+              activeTab === 'backtest-results'
+                ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg'
+                : 'text-slate-100 hover:text-white hover:bg-slate-700/50'
+            }`}
+          >
+            <LineChartIcon className="inline mr-1" size={16} />
+            Results
+          </button>
 
           {/* Admin Tab - Only visible to admins */}
           {currentUser?.role === 'admin' && (
@@ -3373,6 +3409,39 @@ const FXTradingDashboard = () => {
               apiUrl={apiUrl}
               apiKey={apiKey}
               currentUser={currentUser}
+            />
+          </Suspense>
+        )}
+
+        {/* Backtest Data Manager Tab */}
+        {activeTab === 'backtest-data' && (
+          <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Data Manager...</div></div>}>
+            <DataManager
+              apiUrl={apiUrl}
+              authToken={apiKey}
+            />
+          </Suspense>
+        )}
+
+        {/* Backtest Builder Tab */}
+        {activeTab === 'backtest-builder' && (
+          <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Backtest Builder...</div></div>}>
+            <BacktestBuilder
+              apiUrl={apiUrl}
+              authToken={apiKey}
+              onBacktestComplete={(backtestId) => {
+                setActiveTab('backtest-results');
+              }}
+            />
+          </Suspense>
+        )}
+
+        {/* Backtest Results Tab */}
+        {activeTab === 'backtest-results' && (
+          <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Backtest Results...</div></div>}>
+            <BacktestResults
+              apiUrl={apiUrl}
+              authToken={apiKey}
             />
           </Suspense>
         )}

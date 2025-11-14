@@ -24,6 +24,8 @@ import {
   getApplicationStats
 } from './applicationSystem.js';
 
+import { registerBacktestingRoutes } from './backtestingRoutes.js';
+
 // ============================================
 // AUTHENTICATION & SECURITY UTILITIES
 // ============================================
@@ -214,6 +216,35 @@ export default {
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
+    }
+
+    // Helper function for JSON responses
+    function jsonResponse(data, status = 200) {
+      return new Response(JSON.stringify(data), {
+        status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // ============================================
+    // BACKTESTING SYSTEM ROUTES
+    // ============================================
+    const routes = [];
+    registerBacktestingRoutes(routes, requireAuth, jsonResponse);
+
+    // Try to match backtesting routes
+    for (const route of routes) {
+      if (request.method === route.method) {
+        const match = path.match(route.pattern);
+        if (match) {
+          try {
+            return await route.handler(request, env, match.slice(1));
+          } catch (error) {
+            console.error('Backtesting route error:', error);
+            return jsonResponse({ error: error.message }, 500);
+          }
+        }
+      }
     }
 
     // ============================================
