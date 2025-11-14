@@ -23,6 +23,7 @@ const CorrelationMatrix = lazy(() => import('./components/CorrelationMatrix'));
 const TradeCopier = lazy(() => import('./components/TradeCopier'));
 const EconomicCalendar = lazy(() => import('./components/EconomicCalendar'));
 const AITradeReview = lazy(() => import('./components/AITradeReview'));
+const InstallPWA = lazy(() => import('./components/InstallPWA'));
 
 const COLORS = ['#8b5cf6', '#ec4899', '#06b6d4', '#10b981', '#f59e0b', '#ef4444'];
 
@@ -2424,14 +2425,14 @@ const FXTradingDashboard = () => {
 
   {/* Action Buttons */}
   <div className="flex flex-wrap gap-3">
-    <select 
+    <select
       value={selectedAccount}
       onChange={(e) => setSelectedAccount(e.target.value)}
-      className="px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all hover:bg-white/10 min-w-[200px] flex-shrink-0"
+      className="px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all hover:bg-slate-700 min-w-[200px] flex-shrink-0"
     >
-      <option value="all">All Accounts ({accounts.length})</option>
+      <option value="all" className="bg-slate-800 text-white">All Accounts ({accounts.length})</option>
       {accounts.map(acc => (
-        <option key={acc.id} value={acc.id}>
+        <option key={acc.id} value={acc.id} className="bg-slate-800 text-white">
           {acc.name} - {acc.broker}
         </option>
       ))}
@@ -4145,6 +4146,11 @@ const FXTradingDashboard = () => {
           </Suspense>
         )}
       </div>
+
+      {/* PWA Install Prompt */}
+      <Suspense fallback={null}>
+        <InstallPWA />
+      </Suspense>
     </div>
   );
 };

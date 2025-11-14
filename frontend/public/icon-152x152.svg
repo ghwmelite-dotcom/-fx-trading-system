@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="152" height="152" viewBox="0 0 152 152" xmlns="http://www.w3.org/2000/svg">
+  <!-- Gradient Background -->
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8b5cf6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ec4899;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="152" height="152" fill="url(#grad1)" rx="22.8"/>
+
+  <!-- FX Text -->
+  <text x="50%" y="45%" text-anchor="middle" font-family="Arial, sans-serif" font-size="53.199999999999996" font-weight="bold" fill="#ffffff">FX</text>
+
+  <!-- Metrics Text -->
+  <text x="50%" y="75%" text-anchor="middle" font-family="Arial, sans-serif" font-size="18.24" font-weight="500" fill="#ffffff" opacity="0.9">METRICS</text>
+
+  <!-- Trading Chart Line (Simple) -->
+  <path d="M 22.8 129.2 L 45.6 118.56 L 68.4 124.63999999999999 L 91.2 114 L 114 121.60000000000001 L 129.2 109.44"
+        stroke="#ffffff" stroke-width="2.28" fill="none" opacity="0.6"/>
+</svg>

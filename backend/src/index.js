@@ -2,6 +2,29 @@
 // Deploy with: wrangler deploy
 
 // ============================================
+// EXCLUSIVE ACCESS SYSTEM IMPORTS
+// ============================================
+import {
+  getPlatformStats,
+  canUserRegister,
+  setupUserExclusiveFeatures,
+  addToWaitlist
+} from './exclusiveAccess.js';
+
+import { emailTemplates, sendEmail } from './emailService.js';
+
+import {
+  submitApplication,
+  getApplications,
+  approveApplication,
+  rejectApplication,
+  validateApplicationInvite,
+  useApplicationInvite,
+  isCuratedMode,
+  getApplicationStats
+} from './applicationSystem.js';
+
+// ============================================
 // AUTHENTICATION & SECURITY UTILITIES
 // ============================================
 
@@ -192,6 +215,352 @@ export default {
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
+
+    // ============================================
+    // EXCLUSIVE ACCESS SYSTEM ENDPOINTS
+    // ============================================
+
+    // GET /api/platform/stats - Public platform statistics
+    if (path === '/api/platform/stats' && request.method === 'GET') {
+      try {
+        const stats = await getPlatformStats(env);
+        return new Response(JSON.stringify(stats), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error('Error getting platform stats:', error);
+        return new Response(JSON.stringify({
+          error: 'Failed to get platform stats',
+          details: error.message
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // POST /api/waitlist - Join waitlist
+    if (path === '/api/waitlist' && request.method === 'POST') {
+      try {
+        const data = await request.json();
+
+        // Validate required fields
+        if (!data.email || !data.name) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Email and name are required'
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
+        // Add to waitlist
+        const result = await addToWaitlist(env, data);
+
+        // Send confirmation email if successful
+        if (result.success && env.RESEND_API_KEY) {
+          const stats = await getPlatformStats(env);
+          const template = emailTemplates.waitlistConfirmation(
+            data.name,
+            result.position,
+            stats.waitlist_size
+          );
+          await sendEmail(env.RESEND_API_KEY, data.email, template);
+        }
+
+        return new Response(JSON.stringify(result), {
+          status: result.success ? 200 : 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error('Error adding to waitlist:', error);
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Failed to add to waitlist',
+          details: error.message
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // ============================================
+    // APPLICATION SYSTEM ENDPOINTS (Curated Access)
+    // ============================================
+
+    // POST /api/apply - Submit founding member application
+    if (path === '/api/apply' && request.method === 'POST') {
+      try {
+        const data = await request.json();
+
+        // Validate required fields
+        if (!data.email || !data.name || !data.experience_years || !data.account_size || !data.why_you) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Please fill in all required fields'
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
+        // Submit application
+        const result = await submitApplication(env, data);
+
+        // Send confirmation email to applicant
+        if (result.success && env.RESEND_API_KEY) {
+          const template = emailTemplates.applicationReceived(
+            data.name,
+            result.queue_position,
+            result.priority
+          );
+          await sendEmail(env.RESEND_API_KEY, data.email, template);
+
+          // Send notification email to admin
+          if (env.ADMIN_EMAIL) {
+            const adminTemplate = emailTemplates.adminNewApplication(
+              data.name,
+              data.email,
+              result.priority,
+              result.queue_position,
+              data
+            );
+            await sendEmail(env.RESEND_API_KEY, env.ADMIN_EMAIL, adminTemplate);
+          }
+        }
+
+        return new Response(JSON.stringify(result), {
+          status: result.success ? 200 : 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error('Error submitting application:', error);
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Failed to submit application',
+          details: error.message
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // GET /api/platform/mode - Check if curated or automatic registration
+    if (path === '/api/platform/mode' && request.method === 'GET') {
+      try {
+        const inCuratedMode = await isCuratedMode(env);
+        const stats = await getPlatformStats(env);
+
+        return new Response(JSON.stringify({
+          curated_mode: inCuratedMode,
+          mode: inCuratedMode ? 'application' : stats.is_full ? 'waitlist' : 'registration',
+          spots_filled: stats.total_users,
+          founding_spots_remaining: Math.max(0, 25 - stats.total_users)
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error('Error checking platform mode:', error);
+        return new Response(JSON.stringify({
+          error: 'Failed to check platform mode',
+          details: error.message
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // GET /api/admin/applications - List applications (requires auth)
+    if (path === '/api/admin/applications' && request.method === 'GET') {
+      try {
+        // Get auth from request
+        const authHeader = request.headers.get('Authorization');
+        const sessionCookie = request.headers.get('Cookie')?.split('; ').find(c => c.startsWith('session_token='));
+
+        if (!authHeader && !sessionCookie) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Authentication required'
+          }), {
+            status: 401,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
+        // Parse query params
+        const url = new URL(request.url);
+        const status = url.searchParams.get('status');
+        const limit = url.searchParams.get('limit');
+        const offset = url.searchParams.get('offset');
+
+        const result = await getApplications(env, { status, limit, offset });
+
+        return new Response(JSON.stringify(result), {
+          status: result.success ? 200 : 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error('Error getting applications:', error);
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Failed to get applications',
+          details: error.message
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // POST /api/admin/applications/:id/approve - Approve application
+    if (path.match(/^\/api\/admin\/applications\/\d+\/approve$/) && request.method === 'POST') {
+      try {
+        // Get auth from request
+        const authHeader = request.headers.get('Authorization');
+        const sessionCookie = request.headers.get('Cookie')?.split('; ').find(c => c.startsWith('session_token='));
+
+        if (!authHeader && !sessionCookie) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Authentication required'
+          }), {
+            status: 401,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
+        // Extract application ID
+        const applicationId = parseInt(path.split('/')[4]);
+
+        // TODO: Get actual admin user ID from session
+        const adminId = 1;
+
+        // Approve application
+        const result = await approveApplication(env, applicationId, adminId);
+
+        // Send approval email if successful
+        if (result.success && env.RESEND_API_KEY) {
+          const template = emailTemplates.applicationApproved(
+            result.applicant_name,
+            result.invitation_code,
+            result.expires_at
+          );
+          await sendEmail(env.RESEND_API_KEY, result.applicant_email, template);
+        }
+
+        return new Response(JSON.stringify(result), {
+          status: result.success ? 200 : 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error('Error approving application:', error);
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Failed to approve application',
+          details: error.message
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // POST /api/admin/applications/:id/reject - Reject application
+    if (path.match(/^\/api\/admin\/applications\/\d+\/reject$/) && request.method === 'POST') {
+      try {
+        // Get auth from request
+        const authHeader = request.headers.get('Authorization');
+        const sessionCookie = request.headers.get('Cookie')?.split('; ').find(c => c.startsWith('session_token='));
+
+        if (!authHeader && !sessionCookie) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Authentication required'
+          }), {
+            status: 401,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
+        // Extract application ID
+        const applicationId = parseInt(path.split('/')[4]);
+
+        // Get reason from body
+        const data = await request.json().catch(() => ({}));
+        const reason = data.reason || null;
+
+        // TODO: Get actual admin user ID from session
+        const adminId = 1;
+
+        // Reject application
+        const result = await rejectApplication(env, applicationId, adminId, reason);
+
+        // Send rejection email if successful
+        if (result.success && env.RESEND_API_KEY) {
+          const template = emailTemplates.applicationRejected(result.applicant_name);
+          await sendEmail(env.RESEND_API_KEY, result.applicant_email, template);
+        }
+
+        return new Response(JSON.stringify(result), {
+          status: result.success ? 200 : 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error('Error rejecting application:', error);
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Failed to reject application',
+          details: error.message
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // GET /api/admin/applications/stats - Get application statistics
+    if (path === '/api/admin/applications/stats' && request.method === 'GET') {
+      try {
+        // Get auth from request
+        const authHeader = request.headers.get('Authorization');
+        const sessionCookie = request.headers.get('Cookie')?.split('; ').find(c => c.startsWith('session_token='));
+
+        if (!authHeader && !sessionCookie) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Authentication required'
+          }), {
+            status: 401,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
+        const result = await getApplicationStats(env);
+
+        return new Response(JSON.stringify(result), {
+          status: result.success ? 200 : 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error('Error getting application stats:', error);
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Failed to get application stats',
+          details: error.message
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // ============================================
+    // EXISTING ENDPOINTS
+    // ============================================
 
     // Test endpoint (no auth required)
     if (path === '/api/test' || path === '/api/test/') {

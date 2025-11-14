@@ -1,11 +1,16 @@
 import { useState, useEffect } from 'react';
 import { Brain, TrendingUp, BookOpen, BarChart3, Target, Shield, Zap, Award, Activity, ArrowRight, CheckCircle, Star, Users, Globe, Lock, Send, Sparkles, LineChart, PieChart, TrendingDown } from 'lucide-react';
+import SpotCounter from './SpotCounter';
+import WaitlistForm from './WaitlistForm';
+import ApplicationForm from './ApplicationForm';
 
 const LandingPage = ({ onLoginClick }) => {
   const [activeFeature, setActiveFeature] = useState(0);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [showWaitlist, setShowWaitlist] = useState(false);
+  const [showApplication, setShowApplication] = useState(false);
 
   // Animated counters for stats
   const [animatedStats, setAnimatedStats] = useState({
@@ -341,6 +346,16 @@ const LandingPage = ({ onLoginClick }) => {
           </div>
         </section>
 
+        {/* Exclusive Access Spot Counter */}
+        <section className="py-16 px-4 sm:px-6 lg:px-8 relative">
+          <div className="max-w-5xl mx-auto">
+            <SpotCounter
+              onWaitlistClick={() => setShowWaitlist(true)}
+              onApplyClick={() => setShowApplication(true)}
+            />
+          </div>
+        </section>
+
         {/* Stats Section */}
         <section className="py-24 px-4 sm:px-6 lg:px-8 relative">
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-purple-500/5 to-transparent"></div>
@@ -641,6 +656,12 @@ const LandingPage = ({ onLoginClick }) => {
           </div>
         </footer>
       </div>
+
+      {/* Waitlist Modal */}
+      {showWaitlist && <WaitlistForm onClose={() => setShowWaitlist(false)} />}
+
+      {/* Application Form Modal */}
+      {showApplication && <ApplicationForm onClose={() => setShowApplication(false)} />}
 
       {/* CSS Animations */}
       <style jsx>{`
