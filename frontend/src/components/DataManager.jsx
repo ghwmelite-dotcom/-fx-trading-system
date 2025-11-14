@@ -20,17 +20,30 @@ const DataManager = ({ apiUrl, authToken }) => {
 
   const loadDatasets = async () => {
     setLoading(true);
+    setError(null);
     try {
+      if (!authToken) {
+        setError('Please log in to access backtesting features');
+        setLoading(false);
+        return;
+      }
+
       const response = await fetch(`${apiUrl}/api/backtest/data`, {
         headers: { 'Authorization': `Bearer ${authToken}` }
       });
 
-      if (!response.ok) throw new Error('Failed to load datasets');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 401) {
+          throw new Error('Authentication required. Please log in.');
+        }
+        throw new Error(errorData.error || 'Failed to load datasets');
+      }
 
       const data = await response.json();
       setDatasets(data.data || []);
     } catch (err) {
-      setError('Failed to load historical data: ' + err.message);
+      setError(err.message || 'Failed to load historical data');
     } finally {
       setLoading(false);
     }

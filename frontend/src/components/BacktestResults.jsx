@@ -19,12 +19,25 @@ const BacktestResults = ({ apiUrl, authToken }) => {
 
   const loadBacktests = async () => {
     setLoading(true);
+    setError(null);
     try {
+      if (!authToken) {
+        setError('Please log in to access backtesting features');
+        setLoading(false);
+        return;
+      }
+
       const response = await fetch(`${apiUrl}/api/backtest/results`, {
         headers: { 'Authorization': `Bearer ${authToken}` }
       });
 
-      if (!response.ok) throw new Error('Failed to load backtests');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 401) {
+          throw new Error('Authentication required. Please log in.');
+        }
+        throw new Error(errorData.error || 'Failed to load backtests');
+      }
 
       const data = await response.json();
       setBacktests(data.data || []);
@@ -34,7 +47,7 @@ const BacktestResults = ({ apiUrl, authToken }) => {
         setSelectedBacktest(data.data[0]);
       }
     } catch (err) {
-      setError('Failed to load backtests: ' + err.message);
+      setError(err.message || 'Failed to load backtests');
     } finally {
       setLoading(false);
     }

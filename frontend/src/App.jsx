@@ -3418,7 +3418,7 @@ const FXTradingDashboard = () => {
           <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Data Manager...</div></div>}>
             <DataManager
               apiUrl={apiUrl}
-              authToken={apiKey}
+              authToken={authToken}
             />
           </Suspense>
         )}
@@ -3428,7 +3428,7 @@ const FXTradingDashboard = () => {
           <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Backtest Builder...</div></div>}>
             <BacktestBuilder
               apiUrl={apiUrl}
-              authToken={apiKey}
+              authToken={authToken}
               onBacktestComplete={(backtestId) => {
                 setActiveTab('backtest-results');
               }}
@@ -3441,7 +3441,7 @@ const FXTradingDashboard = () => {
           <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Backtest Results...</div></div>}>
             <BacktestResults
               apiUrl={apiUrl}
-              authToken={apiKey}
+              authToken={authToken}
             />
           </Suspense>
         )}
