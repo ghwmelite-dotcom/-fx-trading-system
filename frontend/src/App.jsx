@@ -27,6 +27,7 @@ const InstallPWA = lazy(() => import('./components/InstallPWA'));
 const DataManager = lazy(() => import('./components/DataManager'));
 const BacktestBuilder = lazy(() => import('./components/BacktestBuilder'));
 const BacktestResults = lazy(() => import('./components/BacktestResults'));
+const UserGuide = lazy(() => import('./components/UserGuide'));
 
 const COLORS = ['#8b5cf6', '#ec4899', '#06b6d4', '#10b981', '#f59e0b', '#ef4444'];
 
@@ -2428,6 +2429,17 @@ const FXTradingDashboard = () => {
             <LineChartIcon className="inline mr-1" size={16} />
             Results
           </button>
+          <button
+            onClick={() => setActiveTab('guide')}
+            className={`flex-1 px-3 sm:px-5 py-3 rounded-lg font-bold transition-all duration-200 text-sm sm:text-base ${
+              activeTab === 'guide'
+                ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg'
+                : 'text-slate-100 hover:text-white hover:bg-slate-700/50'
+            }`}
+          >
+            <BookOpen className="inline mr-1" size={16} />
+            Guide
+          </button>
 
           {/* Admin Tab - Only visible to admins */}
           {currentUser?.role === 'admin' && (
@@ -3443,6 +3455,13 @@ const FXTradingDashboard = () => {
               apiUrl={apiUrl}
               authToken={authToken}
             />
+          </Suspense>
+        )}
+
+        {/* User Guide Tab */}
+        {activeTab === 'guide' && (
+          <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading User Guide...</div></div>}>
+            <UserGuide />
           </Suspense>
         )}
 
