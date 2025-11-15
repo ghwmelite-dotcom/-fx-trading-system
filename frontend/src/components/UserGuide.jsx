@@ -4,7 +4,7 @@ import {
   Home, TrendingUp, BarChart3, Database, FlaskConical, LineChart,
   Settings, Smartphone, Lightbulb, AlertCircle, Copy, Check,
   Zap, Target, Brain, Shield, Download, Calendar, Tag, Star,
-  Camera, Filter, DollarSign, Activity, Award, HelpCircle, Keyboard
+  Camera, Filter, DollarSign, Activity, Award, HelpCircle, Keyboard, User
 } from 'lucide-react';
 
 const UserGuide = () => {
