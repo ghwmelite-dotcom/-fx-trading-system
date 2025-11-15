@@ -195,6 +195,8 @@ export default {
           'https://fx-trading-dashboard.pages.dev',
           'https://*.fx-trading-dashboard.pages.dev',
           'https://fx-trade-metrics-pro.ghwmelite.work',
+          'https://trademetricspro.ghwmelite.work',
+          'https://fxjournalpro.ghwmelite.work',
           'http://localhost:5173',
           'http://localhost:5174',
           'http://localhost:5175',
