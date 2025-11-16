@@ -223,51 +223,65 @@ async function fetchFromYahoo(symbol, timeframe, startDate, endDate) {
   const period1 = Math.floor(new Date(startDate).getTime() / 1000);
   const period2 = Math.floor(new Date(endDate).getTime() / 1000);
 
-  const url = `https://query1.finance.yahoo.com/v7/finance/download/${formatted}?period1=${period1}&period2=${period2}&interval=${interval}&events=history`;
+  // Use v8 API with proper headers to avoid 429 errors
+  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${formatted}?period1=${period1}&period2=${period2}&interval=${interval}&events=history`;
 
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      'Accept': 'application/json',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': 'https://finance.yahoo.com/'
+    }
+  });
 
   if (!response.ok) {
     throw new Error(`Yahoo Finance API error: ${response.status} ${response.statusText}`);
   }
 
-  const csvText = await response.text();
-  const lines = csvText.split('\n').filter(line => line.trim());
+  // Parse JSON response (v8 API returns JSON, not CSV)
+  const jsonData = await response.json();
 
-  if (lines.length < 2) {
+  if (!jsonData.chart || !jsonData.chart.result || jsonData.chart.result.length === 0) {
     throw new Error('No data returned from Yahoo Finance');
   }
 
-  // Parse CSV (skip header)
+  const result = jsonData.chart.result[0];
+  const timestamps = result.timestamp || [];
+  const quotes = result.indicators?.quote?.[0] || {};
+
+  if (timestamps.length === 0) {
+    throw new Error('No price data available from Yahoo Finance');
+  }
+
+  // Convert to standard format
   const candles = [];
 
-  for (let i = 1; i < lines.length; i++) {
-    const values = lines[i].split(',');
-
-    if (values.length < 6) continue;
-
-    // Yahoo CSV format: Date,Open,High,Low,Close,Adj Close,Volume
-    const timestamp = values[0].trim();
-    const open = parseFloat(values[1]);
-    const high = parseFloat(values[2]);
-    const low = parseFloat(values[3]);
-    const close = parseFloat(values[4]);
-    const volume = parseFloat(values[6] || 0);
+  for (let i = 0; i < timestamps.length; i++) {
+    const open = quotes.open?.[i];
+    const high = quotes.high?.[i];
+    const low = quotes.low?.[i];
+    const close = quotes.close?.[i];
+    const volume = quotes.volume?.[i] || 0;
 
     // Skip invalid rows
-    if (isNaN(open) || isNaN(high) || isNaN(low) || isNaN(close)) {
+    if (isNaN(open) || isNaN(high) || isNaN(low) || isNaN(close) ||
+        open === null || high === null || low === null || close === null) {
       continue;
     }
 
     candles.push({
-      timestamp: timestamp.includes('T') ? timestamp : timestamp + 'T00:00:00Z',
+      timestamp: new Date(timestamps[i] * 1000).toISOString(),
       open,
       high,
       low,
       close,
-      volume,
-      source: 'yahoo'
+      volume
     });
+  }
+
+  if (candles.length === 0) {
+    throw new Error('No valid data returned from Yahoo Finance');
   }
 
   return candles;
