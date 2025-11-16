@@ -6,6 +6,7 @@ import {
   Download,
   AlertCircle,
   CheckCircle,
+  Check,
   Clock,
   Globe,
   Key,
@@ -49,6 +50,7 @@ const DataManager = ({ apiUrl, authToken }) => {
   const [validateData, setValidateData] = useState(true);
   const [mergeStrategy, setMergeStrategy] = useState('prefer-newest');
   const [sourceStatus, setSourceStatus] = useState(null);
+  const [storedApiKeys, setStoredApiKeys] = useState([]);
 
   // Major forex pairs
   const majorPairs = [
@@ -59,6 +61,7 @@ const DataManager = ({ apiUrl, authToken }) => {
   useEffect(() => {
     loadDatasets();
     loadSourceStatus();
+    loadStoredApiKeys();
   }, []);
 
   const loadDatasets = async () => {
@@ -104,6 +107,35 @@ const DataManager = ({ apiUrl, authToken }) => {
       }
     } catch (err) {
       console.error('Failed to load source status:', err);
+    }
+  };
+
+  const loadStoredApiKeys = async () => {
+    try {
+      if (!authToken) return;
+
+      const response = await fetch(`${apiUrl}/api/backtest/api-keys`, {
+        headers: { 'Authorization': `Bearer ${authToken}` }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setStoredApiKeys(data.apiKeys || []);
+
+        // Auto-select sources that have stored API keys
+        const sourcesWithKeys = ['yahoo']; // Yahoo always works
+        for (const key of (data.apiKeys || [])) {
+          if (key.provider === 'alphavantage' && key.is_active) {
+            sourcesWithKeys.push('alphavantage');
+          }
+          if (key.provider === 'twelvedata' && key.is_active) {
+            sourcesWithKeys.push('twelvedata');
+          }
+        }
+        setSelectedSources(sourcesWithKeys);
+      }
+    } catch (err) {
+      console.error('Failed to load stored API keys:', err);
     }
   };
 
@@ -659,46 +691,64 @@ const DataManager = ({ apiUrl, authToken }) => {
                   <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
                     Alpha Vantage API Key
                   </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="password"
-                      value={apiKeys.alphavantage}
-                      onChange={(e) => setApiKeys({ ...apiKeys, alphavantage: e.target.value })}
-                      placeholder="Enter your API key"
-                      className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    />
-                    <a
-                      href="https://www.alphavantage.co/support/#api-key"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-3 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg whitespace-nowrap"
-                    >
-                      Get Free Key
-                    </a>
-                  </div>
+                  {storedApiKeys.find(k => k.provider === 'alphavantage') ? (
+                    <div className="flex items-center gap-2 px-3 py-2 text-sm bg-green-50 dark:bg-green-900/20 border border-green-300 dark:border-green-700 rounded-lg">
+                      <Check className="w-4 h-4 text-green-600 dark:text-green-400" />
+                      <span className="text-green-700 dark:text-green-300">
+                        Using stored key: {storedApiKeys.find(k => k.provider === 'alphavantage').api_key_preview}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={apiKeys.alphavantage}
+                        onChange={(e) => setApiKeys({ ...apiKeys, alphavantage: e.target.value })}
+                        placeholder="Enter your API key"
+                        className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      />
+                      <a
+                        href="https://www.alphavantage.co/support/#api-key"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg whitespace-nowrap"
+                      >
+                        Get Free Key
+                      </a>
+                    </div>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
                     Twelve Data API Key
                   </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="password"
-                      value={apiKeys.twelvedata}
-                      onChange={(e) => setApiKeys({ ...apiKeys, twelvedata: e.target.value })}
-                      placeholder="Enter your API key"
-                      className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    />
-                    <a
-                      href="https://twelvedata.com/pricing"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-3 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg whitespace-nowrap"
-                    >
-                      Get Free Key
-                    </a>
-                  </div>
+                  {storedApiKeys.find(k => k.provider === 'twelvedata') ? (
+                    <div className="flex items-center gap-2 px-3 py-2 text-sm bg-green-50 dark:bg-green-900/20 border border-green-300 dark:border-green-700 rounded-lg">
+                      <Check className="w-4 h-4 text-green-600 dark:text-green-400" />
+                      <span className="text-green-700 dark:text-green-300">
+                        Using stored key: {storedApiKeys.find(k => k.provider === 'twelvedata').api_key_preview}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={apiKeys.twelvedata}
+                        onChange={(e) => setApiKeys({ ...apiKeys, twelvedata: e.target.value })}
+                        placeholder="Enter your API key"
+                        className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      />
+                      <a
+                        href="https://twelvedata.com/pricing"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg whitespace-nowrap"
+                      >
+                        Get Free Key
+                      </a>
+                    </div>
+                  )}
                 </div>
               </div>
             </details>
