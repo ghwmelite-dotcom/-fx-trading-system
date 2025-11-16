@@ -233,6 +233,21 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
 
         const jobId = jobResult.meta.last_row_id;
 
+        // Load stored API keys from database for the user
+        const storedKeys = await env.DB.prepare(`
+          SELECT provider, api_key
+          FROM api_keys
+          WHERE user_id = ?
+        `).bind(authResult.user.id).all();
+
+        // Merge stored keys with any keys provided in request (request keys take precedence)
+        const apiKeys = { ...(body.apiKeys || {}) };
+        for (const key of storedKeys.results || []) {
+          if (!apiKeys[key.provider]) {
+            apiKeys[key.provider] = key.api_key;
+          }
+        }
+
         // Fetch data from sources
         let fetchResult;
         try {
@@ -242,7 +257,7 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
             body.timeframe,
             body.startDate,
             body.endDate,
-            body.apiKeys || {}
+            apiKeys
           );
         } catch (error) {
           // Update job with error
