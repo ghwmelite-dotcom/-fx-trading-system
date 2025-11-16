@@ -2,6 +2,13 @@
 // All routes require authentication and follow existing security patterns
 
 import { runBacktest } from './backtestEngine.js';
+import {
+  fetchFromSources,
+  validateData,
+  fillGaps,
+  mergeDataSources,
+  getRateLimitStatus
+} from './dataSourceService.js';
 
 /**
  * Register all backtesting routes
@@ -176,6 +183,562 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
       } catch (error) {
         console.error('Data delete error:', error);
         return jsonResponse({ error: 'Failed to delete data', details: error.message }, 500);
+      }
+    }
+  });
+
+  // POST /api/backtest/data/fetch - Fetch data from external APIs
+  routes.push({
+    method: 'POST',
+    pattern: /^\/api\/backtest\/data\/fetch$/,
+    handler: async (request, env) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const body = await request.json();
+
+        // Validate required fields
+        if (!body.symbol || !body.timeframe || !body.startDate || !body.endDate) {
+          return jsonResponse({
+            error: 'symbol, timeframe, startDate, and endDate are required'
+          }, 400);
+        }
+
+        if (!body.sources || !Array.isArray(body.sources) || body.sources.length === 0) {
+          return jsonResponse({
+            error: 'At least one data source must be specified'
+          }, 400);
+        }
+
+        // Create fetch job
+        const jobResult = await env.DB.prepare(`
+          INSERT INTO data_fetch_jobs (
+            user_id, symbol, timeframe, start_date, end_date,
+            sources, merge_strategy, fill_gaps, validate_data,
+            api_keys, status, current_step
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'Fetching data from sources')
+        `).bind(
+          authResult.user.id,
+          body.symbol.toUpperCase(),
+          body.timeframe.toUpperCase(),
+          body.startDate,
+          body.endDate,
+          JSON.stringify(body.sources),
+          body.mergeStrategy || 'prefer-newest',
+          body.fillGaps !== undefined ? body.fillGaps : 1,
+          body.validateData !== undefined ? body.validateData : 1,
+          body.apiKeys ? JSON.stringify(body.apiKeys) : null
+        ).run();
+
+        const jobId = jobResult.meta.last_row_id;
+
+        // Fetch data from sources
+        let fetchResult;
+        try {
+          fetchResult = await fetchFromSources(
+            body.sources,
+            body.symbol,
+            body.timeframe,
+            body.startDate,
+            body.endDate,
+            body.apiKeys || {}
+          );
+        } catch (error) {
+          // Update job with error
+          await env.DB.prepare(`
+            UPDATE data_fetch_jobs
+            SET status = 'failed', error_message = ?, completed_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).bind(error.message, jobId).run();
+
+          // Log API usage
+          await env.DB.prepare(`
+            INSERT INTO api_usage (user_id, provider, symbol, timeframe, status, error_message)
+            VALUES (?, ?, ?, ?, 'error', ?)
+          `).bind(authResult.user.id, body.sources[0], body.symbol, body.timeframe, error.message).run();
+
+          return jsonResponse({ error: error.message }, 500);
+        }
+
+        let data = fetchResult.data;
+        let gapsFilled = 0;
+        let validationResult = null;
+
+        // Fill gaps if requested
+        if (body.fillGaps) {
+          const fillResult = fillGaps(data, body.timeframe);
+          data = fillResult.data;
+          gapsFilled = fillResult.gapsFilled;
+
+          await env.DB.prepare(`
+            UPDATE data_fetch_jobs
+            SET current_step = ?, gaps_filled = ?
+            WHERE id = ?
+          `).bind(`Filled ${gapsFilled} gaps`, gapsFilled, jobId).run();
+        }
+
+        // Validate data if requested
+        if (body.validateData) {
+          validationResult = validateData(data);
+
+          await env.DB.prepare(`
+            UPDATE data_fetch_jobs
+            SET current_step = ?, validation_issues = ?
+            WHERE id = ?
+          `).bind(
+            `Validated data: ${validationResult.valid}/${validationResult.total} valid`,
+            validationResult.invalid,
+            jobId
+          ).run();
+        }
+
+        // Create or update dataset record
+        const datasetName = body.datasetName || `${body.symbol} ${body.timeframe} - ${new Date().toLocaleDateString()}`;
+
+        const datasetResult = await env.DB.prepare(`
+          INSERT INTO datasets (
+            user_id, name, symbol, timeframe, data_source,
+            fetch_config, total_candles, start_date, end_date,
+            gaps_filled, validation_issues
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          authResult.user.id,
+          datasetName,
+          body.symbol.toUpperCase(),
+          body.timeframe.toUpperCase(),
+          fetchResult.source,
+          JSON.stringify({
+            sources: body.sources,
+            apiKeys: body.apiKeys ? Object.keys(body.apiKeys) : [],
+            mergeStrategy: body.mergeStrategy,
+            fillGaps: body.fillGaps,
+            validateData: body.validateData
+          }),
+          data.length,
+          data[0].timestamp,
+          data[data.length - 1].timestamp,
+          gapsFilled,
+          validationResult?.invalid || 0
+        ).run();
+
+        const datasetId = datasetResult.meta.last_row_id;
+
+        // Insert candles into historical_data table
+        await env.DB.prepare(`
+          UPDATE data_fetch_jobs
+          SET current_step = 'Inserting candles into database'
+          WHERE id = ?
+        `).bind(jobId).run();
+
+        let inserted = 0;
+        for (const candle of data) {
+          try {
+            await env.DB.prepare(`
+              INSERT OR IGNORE INTO historical_data (
+                user_id, symbol, timeframe, timestamp,
+                open, high, low, close, volume,
+                data_source, fetch_source, is_gap_filled
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'api', ?, ?)
+            `).bind(
+              authResult.user.id,
+              body.symbol.toUpperCase(),
+              body.timeframe.toUpperCase(),
+              candle.timestamp,
+              candle.open,
+              candle.high,
+              candle.low,
+              candle.close,
+              candle.volume || 0,
+              candle.source || fetchResult.source,
+              candle.filled ? 1 : 0
+            ).run();
+            inserted++;
+          } catch (error) {
+            console.error('Error inserting candle:', error);
+          }
+        }
+
+        // Update job as completed
+        await env.DB.prepare(`
+          UPDATE data_fetch_jobs
+          SET status = 'completed',
+              dataset_id = ?,
+              candles_fetched = ?,
+              gaps_filled = ?,
+              validation_issues = ?,
+              primary_source = ?,
+              sources_used = ?,
+              completed_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).bind(
+          datasetId,
+          inserted,
+          gapsFilled,
+          validationResult?.invalid || 0,
+          fetchResult.source,
+          JSON.stringify([fetchResult.source]),
+          jobId
+        ).run();
+
+        // Log successful API usage
+        await env.DB.prepare(`
+          INSERT INTO api_usage (
+            user_id, provider, symbol, timeframe,
+            status, candles_fetched, requested_at
+          ) VALUES (?, ?, ?, ?, 'success', ?, CURRENT_TIMESTAMP)
+        `).bind(
+          authResult.user.id,
+          fetchResult.source,
+          body.symbol,
+          body.timeframe,
+          inserted
+        ).run();
+
+        // Create data quality report
+        if (validationResult) {
+          await env.DB.prepare(`
+            INSERT INTO data_quality_reports (
+              dataset_id, user_id, total_candles, valid_candles, invalid_candles,
+              gap_filled_candles, ohlc_errors, coverage_percent, issues
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            datasetId,
+            authResult.user.id,
+            validationResult.total,
+            validationResult.valid,
+            validationResult.invalid,
+            gapsFilled,
+            validationResult.invalid,
+            (validationResult.valid / validationResult.total * 100).toFixed(2),
+            JSON.stringify(validationResult.issues.slice(0, 100)) // Limit to first 100 issues
+          ).run();
+        }
+
+        return jsonResponse({
+          success: true,
+          jobId,
+          datasetId,
+          source: fetchResult.source,
+          candles: inserted,
+          dateRange: {
+            start: data[0].timestamp,
+            end: data[data.length - 1].timestamp
+          },
+          gapsFilled,
+          validationIssues: validationResult?.invalid || 0,
+          message: `Successfully fetched ${inserted} candles from ${fetchResult.source}`
+        });
+      } catch (error) {
+        console.error('Data fetch error:', error);
+        return jsonResponse({
+          error: 'Data fetch failed',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // GET /api/backtest/data/sources/status - Check data source availability
+  routes.push({
+    method: 'GET',
+    pattern: /^\/api\/backtest\/data\/sources\/status$/,
+    handler: async (request, env) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const status = getRateLimitStatus();
+
+        // Get user's API keys
+        const apiKeys = await env.DB.prepare(`
+          SELECT provider, tier, is_active, daily_limit, last_used
+          FROM api_keys
+          WHERE user_id = ? AND is_active = 1
+        `).bind(authResult.user.id).all();
+
+        // Enhance status with user's API key info
+        for (const key of apiKeys.results || []) {
+          const provider = key.provider;
+          if (status[provider]) {
+            status[provider].hasApiKey = true;
+            status[provider].tier = key.tier;
+            status[provider].dailyLimit = key.daily_limit || status[provider].dailyLimit;
+          }
+        }
+
+        return jsonResponse(status);
+      } catch (error) {
+        console.error('Status check error:', error);
+        return jsonResponse({
+          error: 'Failed to check source status',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // POST /api/backtest/data/schedule-update - Schedule automatic data updates
+  routes.push({
+    method: 'POST',
+    pattern: /^\/api\/backtest\/data\/schedule-update$/,
+    handler: async (request, env) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const body = await request.json();
+
+        if (!body.datasetId || !body.frequency) {
+          return jsonResponse({
+            error: 'datasetId and frequency are required'
+          }, 400);
+        }
+
+        // Verify dataset ownership
+        const dataset = await env.DB.prepare(`
+          SELECT id, symbol, timeframe, fetch_config
+          FROM datasets
+          WHERE id = ? AND user_id = ?
+        `).bind(body.datasetId, authResult.user.id).first();
+
+        if (!dataset) {
+          return jsonResponse({ error: 'Dataset not found' }, 404);
+        }
+
+        // Calculate next run time
+        const now = new Date();
+        const time = body.time || '00:00';
+        const [hours, minutes] = time.split(':');
+        const nextRun = new Date(now);
+        nextRun.setUTCHours(parseInt(hours), parseInt(minutes), 0, 0);
+
+        if (nextRun <= now) {
+          nextRun.setDate(nextRun.getDate() + 1);
+        }
+
+        // Create or update scheduled update
+        const result = await env.DB.prepare(`
+          INSERT INTO scheduled_updates (
+            dataset_id, user_id, frequency, time_utc,
+            fetch_config, is_active, next_run
+          ) VALUES (?, ?, ?, ?, ?, 1, ?)
+          ON CONFLICT(dataset_id) DO UPDATE SET
+            frequency = excluded.frequency,
+            time_utc = excluded.time_utc,
+            is_active = 1,
+            next_run = excluded.next_run,
+            updated_at = CURRENT_TIMESTAMP
+        `).bind(
+          body.datasetId,
+          authResult.user.id,
+          body.frequency,
+          time,
+          dataset.fetch_config,
+          nextRun.toISOString()
+        ).run();
+
+        // Update dataset
+        await env.DB.prepare(`
+          UPDATE datasets
+          SET auto_update = 1,
+              update_frequency = ?,
+              update_time = ?,
+              next_update = ?
+          WHERE id = ?
+        `).bind(body.frequency, time, nextRun.toISOString(), body.datasetId).run();
+
+        return jsonResponse({
+          success: true,
+          message: `Scheduled ${body.frequency} updates at ${time} UTC`,
+          nextUpdate: nextRun.toISOString()
+        });
+      } catch (error) {
+        console.error('Schedule update error:', error);
+        return jsonResponse({
+          error: 'Failed to schedule update',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // GET /api/backtest/data/datasets - Get user's datasets
+  routes.push({
+    method: 'GET',
+    pattern: /^\/api\/backtest\/data\/datasets$/,
+    handler: async (request, env) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const result = await env.DB.prepare(`
+          SELECT * FROM dataset_overview
+          WHERE user_id = ?
+          ORDER BY created_at DESC
+        `).bind(authResult.user.id).all();
+
+        return jsonResponse({ datasets: result.results || [] });
+      } catch (error) {
+        console.error('Datasets fetch error:', error);
+        return jsonResponse({
+          error: 'Failed to fetch datasets',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // DELETE /api/backtest/data/datasets/:id - Delete dataset
+  routes.push({
+    method: 'DELETE',
+    pattern: /^\/api\/backtest\/data\/datasets\/(\d+)$/,
+    handler: async (request, env, matches) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const datasetId = parseInt(matches[1]);
+
+        // Verify ownership
+        const dataset = await env.DB.prepare(`
+          SELECT id, symbol, timeframe FROM datasets
+          WHERE id = ? AND user_id = ?
+        `).bind(datasetId, authResult.user.id).first();
+
+        if (!dataset) {
+          return jsonResponse({ error: 'Dataset not found' }, 404);
+        }
+
+        // Delete dataset (will cascade to related tables)
+        await env.DB.prepare(`
+          DELETE FROM datasets WHERE id = ?
+        `).bind(datasetId).run();
+
+        // Also delete associated historical_data
+        await env.DB.prepare(`
+          DELETE FROM historical_data
+          WHERE user_id = ? AND symbol = ? AND timeframe = ?
+        `).bind(authResult.user.id, dataset.symbol, dataset.timeframe).run();
+
+        return jsonResponse({
+          success: true,
+          message: 'Dataset deleted successfully'
+        });
+      } catch (error) {
+        console.error('Dataset delete error:', error);
+        return jsonResponse({
+          error: 'Failed to delete dataset',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // POST /api/backtest/api-keys - Save API key
+  routes.push({
+    method: 'POST',
+    pattern: /^\/api\/backtest\/api-keys$/,
+    handler: async (request, env) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const body = await request.json();
+
+        if (!body.provider || !body.apiKey) {
+          return jsonResponse({
+            error: 'provider and apiKey are required'
+          }, 400);
+        }
+
+        // TODO: In production, encrypt the API key before storing
+        const result = await env.DB.prepare(`
+          INSERT INTO api_keys (
+            user_id, provider, api_key, key_name, tier, is_active
+          ) VALUES (?, ?, ?, ?, ?, 1)
+          ON CONFLICT(user_id, provider, key_name) DO UPDATE SET
+            api_key = excluded.api_key,
+            is_active = 1,
+            updated_at = CURRENT_TIMESTAMP
+        `).bind(
+          authResult.user.id,
+          body.provider.toLowerCase(),
+          body.apiKey, // Should be encrypted in production
+          body.keyName || 'Default',
+          body.tier || 'free'
+        ).run();
+
+        return jsonResponse({
+          success: true,
+          message: `${body.provider} API key saved successfully`
+        });
+      } catch (error) {
+        console.error('API key save error:', error);
+        return jsonResponse({
+          error: 'Failed to save API key',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // GET /api/backtest/api-keys - Get user's API keys
+  routes.push({
+    method: 'GET',
+    pattern: /^\/api\/backtest\/api-keys$/,
+    handler: async (request, env) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const result = await env.DB.prepare(`
+          SELECT
+            id, provider, key_name, tier, is_active,
+            last_used, created_at,
+            SUBSTR(api_key, 1, 8) || '...' as api_key_preview
+          FROM api_keys
+          WHERE user_id = ?
+          ORDER BY created_at DESC
+        `).bind(authResult.user.id).all();
+
+        return jsonResponse({ apiKeys: result.results || [] });
+      } catch (error) {
+        console.error('API keys fetch error:', error);
+        return jsonResponse({
+          error: 'Failed to fetch API keys',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // DELETE /api/backtest/api-keys/:id - Delete API key
+  routes.push({
+    method: 'DELETE',
+    pattern: /^\/api\/backtest\/api-keys\/(\d+)$/,
+    handler: async (request, env, matches) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const keyId = parseInt(matches[1]);
+
+        await env.DB.prepare(`
+          DELETE FROM api_keys
+          WHERE id = ? AND user_id = ?
+        `).bind(keyId, authResult.user.id).run();
+
+        return jsonResponse({
+          success: true,
+          message: 'API key deleted successfully'
+        });
+      } catch (error) {
+        console.error('API key delete error:', error);
+        return jsonResponse({
+          error: 'Failed to delete API key',
+          details: error.message
+        }, 500);
       }
     }
   });
