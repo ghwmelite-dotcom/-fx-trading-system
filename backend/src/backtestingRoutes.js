@@ -1255,5 +1255,551 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
     }
   });
 
+  // ============================================
+  // EXPERT ADVISOR (EA) ENDPOINTS
+  // ============================================
+
+  // POST /api/backtest/ea/upload - Upload and parse MQL5 EA
+  routes.push({
+    method: 'POST',
+    pattern: /^\/api\/backtest\/ea\/upload$/,
+    handler: async (request, env) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const formData = await request.formData();
+        const file = formData.get('file');
+        const name = formData.get('name');
+        const description = formData.get('description') || '';
+
+        if (!file || !name) {
+          return jsonResponse({ error: 'File and name are required' }, 400);
+        }
+
+        // Read MQL5 code
+        const mql5Code = await file.text();
+        const fileSize = mql5Code.length;
+
+        // Import parser and transpiler dynamically
+        const { Lexer } = await import('./mql5/lexer.js');
+        const { Parser } = await import('./mql5/parser.js');
+        const { Transpiler } = await import('./mql5/transpiler.js');
+
+        let transpiledCode = null;
+        let parameters = [];
+        let parseErrors = [];
+        let status = 'active';
+
+        try {
+          // Tokenize
+          const lexer = new Lexer(mql5Code);
+          const tokens = lexer.tokenize();
+
+          // Parse to AST
+          const parser = new Parser(tokens);
+          const ast = parser.parseProgram();
+
+          // Transpile to JavaScript
+          const transpiler = new Transpiler(ast);
+          transpiledCode = transpiler.transpile();
+
+          // Extract input parameters metadata
+          parameters = transpiler.extractInputParametersMetadata(ast);
+
+        } catch (error) {
+          console.error('EA parse/transpile error:', error);
+          parseErrors.push({
+            type: 'parse_error',
+            message: error.message,
+            stack: error.stack
+          });
+          status = 'error';
+        }
+
+        // Save to database
+        const result = await env.DB.prepare(`
+          INSERT INTO expert_advisors
+          (user_id, name, description, original_code, transpiled_code, parameters, file_size, parse_errors, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          authResult.user.id,
+          name,
+          description,
+          mql5Code,
+          transpiledCode,
+          JSON.stringify(parameters),
+          fileSize,
+          JSON.stringify(parseErrors),
+          status
+        ).run();
+
+        const eaId = result.meta.last_row_id;
+
+        return jsonResponse({
+          success: true,
+          eaId,
+          name,
+          status,
+          parameters,
+          parseErrors: parseErrors.length > 0 ? parseErrors : null,
+          hasTranspiledCode: transpiledCode !== null
+        }, status === 'error' ? 400 : 201);
+
+      } catch (error) {
+        console.error('EA upload error:', error);
+        return jsonResponse({
+          error: 'Failed to upload EA',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // GET /api/backtest/ea/list - List user's EAs
+  routes.push({
+    method: 'GET',
+    pattern: /^\/api\/backtest\/ea\/list$/,
+    handler: async (request, env) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const result = await env.DB.prepare(`
+          SELECT
+            id,
+            name,
+            description,
+            version,
+            parameters,
+            file_size,
+            status,
+            parse_errors,
+            uploaded_at,
+            updated_at
+          FROM expert_advisors
+          WHERE user_id = ?
+          ORDER BY uploaded_at DESC
+        `).bind(authResult.user.id).all();
+
+        const eas = result.results.map(ea => ({
+          ...ea,
+          parameters: JSON.parse(ea.parameters || '[]'),
+          parse_errors: JSON.parse(ea.parse_errors || '[]'),
+          file_size_kb: (ea.file_size / 1024).toFixed(2)
+        }));
+
+        return jsonResponse({ success: true, eas });
+
+      } catch (error) {
+        console.error('EA list error:', error);
+        return jsonResponse({
+          error: 'Failed to fetch EAs',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // GET /api/backtest/ea/:id - Get specific EA details
+  routes.push({
+    method: 'GET',
+    pattern: /^\/api\/backtest\/ea\/(\d+)$/,
+    handler: async (request, env, matches) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const eaId = parseInt(matches[1]);
+
+        const ea = await env.DB.prepare(`
+          SELECT
+            id,
+            name,
+            description,
+            version,
+            parameters,
+            original_code,
+            transpiled_code,
+            file_size,
+            status,
+            parse_errors,
+            uploaded_at,
+            updated_at
+          FROM expert_advisors
+          WHERE id = ? AND user_id = ?
+        `).bind(eaId, authResult.user.id).first();
+
+        if (!ea) {
+          return jsonResponse({ error: 'EA not found' }, 404);
+        }
+
+        return jsonResponse({
+          success: true,
+          ea: {
+            ...ea,
+            parameters: JSON.parse(ea.parameters || '[]'),
+            parse_errors: JSON.parse(ea.parse_errors || '[]'),
+            file_size_kb: (ea.file_size / 1024).toFixed(2)
+          }
+        });
+
+      } catch (error) {
+        console.error('EA fetch error:', error);
+        return jsonResponse({
+          error: 'Failed to fetch EA',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // DELETE /api/backtest/ea/:id - Delete EA
+  routes.push({
+    method: 'DELETE',
+    pattern: /^\/api\/backtest\/ea\/(\d+)$/,
+    handler: async (request, env, matches) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const eaId = parseInt(matches[1]);
+
+        // Delete EA (will cascade delete backtests)
+        await env.DB.prepare(`
+          DELETE FROM expert_advisors
+          WHERE id = ? AND user_id = ?
+        `).bind(eaId, authResult.user.id).run();
+
+        return jsonResponse({
+          success: true,
+          message: 'EA deleted successfully'
+        });
+
+      } catch (error) {
+        console.error('EA delete error:', error);
+        return jsonResponse({
+          error: 'Failed to delete EA',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // POST /api/backtest/ea/run - Run EA backtest
+  routes.push({
+    method: 'POST',
+    pattern: /^\/api\/backtest\/ea\/run$/,
+    handler: async (request, env) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const {
+          eaId,
+          datasetId,
+          parameters = {},
+          config = {}
+        } = await request.json();
+
+        if (!eaId || !datasetId) {
+          return jsonResponse({
+            error: 'EA ID and dataset ID are required'
+          }, 400);
+        }
+
+        // Get EA code
+        const ea = await env.DB.prepare(`
+          SELECT id, name, transpiled_code, status
+          FROM expert_advisors
+          WHERE id = ? AND user_id = ?
+        `).bind(eaId, authResult.user.id).first();
+
+        if (!ea) {
+          return jsonResponse({ error: 'EA not found' }, 404);
+        }
+
+        if (ea.status === 'error' || !ea.transpiled_code) {
+          return jsonResponse({
+            error: 'EA has parse errors and cannot be executed'
+          }, 400);
+        }
+
+        // Get dataset info
+        const dataset = await env.DB.prepare(`
+          SELECT id, name, symbol, timeframe
+          FROM datasets
+          WHERE id = ? AND user_id = ?
+        `).bind(datasetId, authResult.user.id).first();
+
+        if (!dataset) {
+          return jsonResponse({ error: 'Dataset not found' }, 404);
+        }
+
+        // Get historical data
+        const dataResult = await env.DB.prepare(`
+          SELECT timestamp, open, high, low, close, volume
+          FROM historical_data
+          WHERE dataset_id = ?
+          ORDER BY timestamp ASC
+        `).bind(datasetId).all();
+
+        if (dataResult.results.length === 0) {
+          return jsonResponse({
+            error: 'No historical data found for this dataset'
+          }, 400);
+        }
+
+        // Create backtest record
+        const backtestResult = await env.DB.prepare(`
+          INSERT INTO ea_backtests
+          (ea_id, user_id, dataset_id, parameters, config, status)
+          VALUES (?, ?, ?, ?, ?, 'running')
+        `).bind(
+          eaId,
+          authResult.user.id,
+          datasetId,
+          JSON.stringify(parameters),
+          JSON.stringify(config)
+        ).run();
+
+        const backtestId = backtestResult.meta.last_row_id;
+
+        try {
+          // Import EA Runner
+          const { EARunner } = await import('./mql5/eaRunner.js');
+
+          // Run backtest
+          const backtestConfig = {
+            initialBalance: config.initialBalance || 10000,
+            symbol: dataset.symbol || config.symbol || 'EURUSD',
+            timeframe: dataset.timeframe || config.timeframe || 'H1',
+            spread: config.spread || null,
+            commission: config.commission || 7
+          };
+
+          const runner = new EARunner(
+            ea.transpiled_code,
+            dataResult.results,
+            parameters,
+            backtestConfig
+          );
+
+          const runResult = await runner.run();
+
+          if (!runResult.success) {
+            throw new Error(runResult.error || 'Backtest execution failed');
+          }
+
+          // Update backtest with results
+          await env.DB.prepare(`
+            UPDATE ea_backtests
+            SET
+              results = ?,
+              logs = ?,
+              status = 'completed',
+              completed_at = datetime('now')
+            WHERE id = ?
+          `).bind(
+            JSON.stringify(runResult.results),
+            JSON.stringify(runResult.logs || []),
+            backtestId
+          ).run();
+
+          // Save metrics for quick comparison
+          const metrics = runResult.results;
+          await env.DB.prepare(`
+            INSERT INTO ea_backtest_metrics
+            (backtest_id, net_profit, total_return, profit_factor, sharpe_ratio,
+             max_drawdown, win_rate, total_trades, avg_trade, expectancy)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            backtestId,
+            metrics.netProfit || 0,
+            metrics.totalReturn || 0,
+            metrics.profitFactor || 0,
+            metrics.sharpeRatio || 0,
+            metrics.maxDrawdownPercent || 0,
+            metrics.winRate || 0,
+            metrics.totalTrades || 0,
+            metrics.avgTrade || 0,
+            metrics.expectancy || 0
+          ).run();
+
+          return jsonResponse({
+            success: true,
+            backtestId,
+            results: runResult.results,
+            logs: runResult.logs
+          });
+
+        } catch (error) {
+          console.error('EA execution error:', error);
+
+          // Update backtest with error
+          await env.DB.prepare(`
+            UPDATE ea_backtests
+            SET
+              status = 'failed',
+              error_message = ?,
+              completed_at = datetime('now')
+            WHERE id = ?
+          `).bind(error.message, backtestId).run();
+
+          return jsonResponse({
+            success: false,
+            backtestId,
+            error: 'Backtest execution failed',
+            details: error.message
+          }, 500);
+        }
+
+      } catch (error) {
+        console.error('EA backtest error:', error);
+        return jsonResponse({
+          error: 'Failed to run EA backtest',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // GET /api/backtest/ea/:eaId/backtests - List backtests for an EA
+  routes.push({
+    method: 'GET',
+    pattern: /^\/api\/backtest\/ea\/(\d+)\/backtests$/,
+    handler: async (request, env, matches) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const eaId = parseInt(matches[1]);
+
+        const result = await env.DB.prepare(`
+          SELECT
+            b.id,
+            b.ea_id,
+            b.dataset_id,
+            b.parameters,
+            b.config,
+            b.status,
+            b.error_message,
+            b.started_at,
+            b.completed_at,
+            d.name as dataset_name,
+            d.symbol,
+            d.timeframe,
+            m.net_profit,
+            m.total_return,
+            m.profit_factor,
+            m.sharpe_ratio,
+            m.max_drawdown,
+            m.win_rate,
+            m.total_trades
+          FROM ea_backtests b
+          LEFT JOIN datasets d ON b.dataset_id = d.id
+          LEFT JOIN ea_backtest_metrics m ON b.id = m.backtest_id
+          WHERE b.ea_id = ? AND b.user_id = ?
+          ORDER BY b.started_at DESC
+        `).bind(eaId, authResult.user.id).all();
+
+        const backtests = result.results.map(bt => ({
+          ...bt,
+          parameters: JSON.parse(bt.parameters || '{}'),
+          config: JSON.parse(bt.config || '{}')
+        }));
+
+        return jsonResponse({ success: true, backtests });
+
+      } catch (error) {
+        console.error('EA backtests list error:', error);
+        return jsonResponse({
+          error: 'Failed to fetch backtests',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // GET /api/backtest/ea/backtest/:id - Get specific backtest results
+  routes.push({
+    method: 'GET',
+    pattern: /^\/api\/backtest\/ea\/backtest\/(\d+)$/,
+    handler: async (request, env, matches) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const backtestId = parseInt(matches[1]);
+
+        const backtest = await env.DB.prepare(`
+          SELECT
+            b.*,
+            e.name as ea_name,
+            d.name as dataset_name,
+            d.symbol,
+            d.timeframe
+          FROM ea_backtests b
+          LEFT JOIN expert_advisors e ON b.ea_id = e.id
+          LEFT JOIN datasets d ON b.dataset_id = d.id
+          WHERE b.id = ? AND b.user_id = ?
+        `).bind(backtestId, authResult.user.id).first();
+
+        if (!backtest) {
+          return jsonResponse({ error: 'Backtest not found' }, 404);
+        }
+
+        return jsonResponse({
+          success: true,
+          backtest: {
+            ...backtest,
+            parameters: JSON.parse(backtest.parameters || '{}'),
+            config: JSON.parse(backtest.config || '{}'),
+            results: JSON.parse(backtest.results || '{}'),
+            logs: JSON.parse(backtest.logs || '[]')
+          }
+        });
+
+      } catch (error) {
+        console.error('EA backtest fetch error:', error);
+        return jsonResponse({
+          error: 'Failed to fetch backtest',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // DELETE /api/backtest/ea/backtest/:id - Delete backtest
+  routes.push({
+    method: 'DELETE',
+    pattern: /^\/api\/backtest\/ea\/backtest\/(\d+)$/,
+    handler: async (request, env, matches) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const backtestId = parseInt(matches[1]);
+
+        await env.DB.prepare(`
+          DELETE FROM ea_backtests
+          WHERE id = ? AND user_id = ?
+        `).bind(backtestId, authResult.user.id).run();
+
+        return jsonResponse({
+          success: true,
+          message: 'Backtest deleted successfully'
+        });
+
+      } catch (error) {
+        console.error('EA backtest delete error:', error);
+        return jsonResponse({
+          error: 'Failed to delete backtest',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
   return routes;
 }
