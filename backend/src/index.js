@@ -238,6 +238,13 @@ export default {
     for (const route of routes) {
       if (request.method === route.method) {
         const match = path.match(route.pattern);
+        // Log health check route matching for debugging
+        if (path.includes('/mt5/health')) {
+          console.log(`Testing route: ${route.pattern} against path: ${path}, match:`, !!match, 'method:', request.method);
+        }
+        if (request.method === 'DELETE' && path.includes('/datasets/')) {
+          console.log(`Testing route: ${route.pattern} against path: ${path}, match:`, !!match);
+        }
         if (match) {
           try {
             return await route.handler(request, env, match.slice(1));
@@ -247,6 +254,13 @@ export default {
           }
         }
       }
+    }
+
+    // Log 404 for dataset deletion attempts
+    if (request.method === 'DELETE' && path.includes('/datasets/')) {
+      console.log(`404 - No route matched for DELETE ${path}`);
+      console.log(`Total routes registered:`, routes.length);
+      console.log(`DELETE routes:`, routes.filter(r => r.method === 'DELETE').map(r => r.pattern.toString()));
     }
 
     // ============================================
@@ -687,6 +701,36 @@ export default {
     // Upload favicon (admin only)
     if ((path === '/api/admin/settings/upload/favicon' || path === '/api/admin/settings/upload/favicon/') && request.method === 'POST') {
       return await uploadFavicon(request, env, corsHeaders);
+    }
+
+    // ============================================
+    // TEMPORARY ACCESS MANAGEMENT ROUTES (Admin only)
+    // ============================================
+
+    // POST /api/admin/temporary-access - Generate temporary access token
+    if ((path === '/api/admin/temporary-access' || path === '/api/admin/temporary-access/') && request.method === 'POST') {
+      return await generateTemporaryAccess(request, env, corsHeaders);
+    }
+
+    // GET /api/admin/temporary-access - List all temporary access tokens
+    if ((path === '/api/admin/temporary-access' || path === '/api/admin/temporary-access/') && request.method === 'GET') {
+      return await listTemporaryAccess(request, env, corsHeaders);
+    }
+
+    // DELETE /api/admin/temporary-access/:token - Revoke temporary access token
+    if (path.startsWith('/api/admin/temporary-access/') && request.method === 'DELETE') {
+      const token = path.substring('/api/admin/temporary-access/'.length).replace(/\/$/, '');
+      return await revokeTemporaryAccess(token, request, env, corsHeaders);
+    }
+
+    // POST /api/auth/temporary-login - Login with temporary access code
+    if ((path === '/api/auth/temporary-login' || path === '/api/auth/temporary-login/') && request.method === 'POST') {
+      return await temporaryLogin(request, env, corsHeaders);
+    }
+
+    // POST /api/auth/verify-temporary-access - Verify temporary access token is valid
+    if ((path === '/api/auth/verify-temporary-access' || path === '/api/auth/verify-temporary-access/') && request.method === 'POST') {
+      return await verifyTemporaryAccess(request, env, corsHeaders);
     }
 
     // Get public platform settings (no auth required)
@@ -2565,6 +2609,423 @@ async function uploadFavicon(request, env, corsHeaders) {
     return new Response(JSON.stringify({
       success: false,
       error: 'Failed to upload favicon'
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// ============================================
+// TEMPORARY ACCESS MANAGEMENT FUNCTIONS
+// ============================================
+
+// Helper: Generate random access code (human-readable)
+function generateAccessCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Removed ambiguous chars
+  let code = '';
+  for (let i = 0; i < 8; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  // Format as XXXX-XXXX for readability
+  return code.substring(0, 4) + '-' + code.substring(4);
+}
+
+// Helper: Generate secure access token
+function generateAccessToken() {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+// POST /api/admin/temporary-access - Generate temporary access token
+async function generateTemporaryAccess(request, env, corsHeaders) {
+  const authResult = await requireAdmin(request, env);
+  if (authResult.error) {
+    return new Response(JSON.stringify({
+      success: false,
+      error: authResult.error
+    }), {
+      status: authResult.status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+
+  try {
+    const { duration_minutes, access_level, granted_to_email, notes } = await request.json();
+
+    // Validate duration (must be between 5 minutes and 24 hours)
+    if (!duration_minutes || duration_minutes < 5 || duration_minutes > 1440) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Duration must be between 5 and 1440 minutes (24 hours)'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Validate access level
+    const validLevels = ['admin', 'read_only'];
+    if (access_level && !validLevels.includes(access_level)) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Invalid access level. Must be "admin" or "read_only"'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const userId = authResult.user.id;
+    const accessToken = generateAccessToken();
+    const accessCode = generateAccessCode();
+    const expiresAt = new Date(Date.now() + duration_minutes * 60 * 1000);
+
+    // Insert into database
+    await env.DB.prepare(`
+      INSERT INTO temporary_access (
+        access_token, access_code, created_by_user_id, granted_to_email,
+        access_level, duration_minutes, expires_at, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      accessToken,
+      accessCode,
+      userId,
+      granted_to_email || null,
+      access_level || 'admin',
+      duration_minutes,
+      expiresAt.toISOString(),
+      notes || null
+    ).run();
+
+    // Log the action
+    await env.DB.prepare(
+      'INSERT INTO audit_logs (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)'
+    ).bind(
+      userId,
+      'create_temporary_access',
+      JSON.stringify({
+        access_code: accessCode,
+        duration_minutes,
+        access_level: access_level || 'admin',
+        granted_to_email: granted_to_email || 'anyone',
+        expires_at: expiresAt.toISOString()
+      }),
+      request.headers.get('cf-connecting-ip') || 'unknown'
+    ).run();
+
+    return new Response(JSON.stringify({
+      success: true,
+      access_code: accessCode,
+      access_token: accessToken,
+      expires_at: expiresAt.toISOString(),
+      duration_minutes,
+      access_level: access_level || 'admin',
+      message: 'Temporary access created successfully'
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('Generate temporary access error:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: 'Failed to generate temporary access'
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// GET /api/admin/temporary-access - List all temporary access tokens
+async function listTemporaryAccess(request, env, corsHeaders) {
+  const authResult = await requireAdmin(request, env);
+  if (authResult.error) {
+    return new Response(JSON.stringify({
+      success: false,
+      error: authResult.error
+    }), {
+      status: authResult.status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+
+  try {
+    const result = await env.DB.prepare(`
+      SELECT
+        ta.id,
+        ta.access_code,
+        ta.created_by_user_id,
+        u.username as created_by_username,
+        ta.granted_to_email,
+        ta.granted_to_user_id,
+        gu.username as granted_to_username,
+        ta.access_level,
+        ta.duration_minutes,
+        ta.expires_at,
+        ta.created_at,
+        ta.used_at,
+        ta.last_activity_at,
+        ta.is_active,
+        ta.is_used,
+        ta.notes,
+        ta.revoked_at,
+        ta.revoked_by_user_id,
+        ru.username as revoked_by_username
+      FROM temporary_access ta
+      LEFT JOIN users u ON ta.created_by_user_id = u.id
+      LEFT JOIN users gu ON ta.granted_to_user_id = gu.id
+      LEFT JOIN users ru ON ta.revoked_by_user_id = ru.id
+      ORDER BY ta.created_at DESC
+      LIMIT 100
+    `).all();
+
+    return new Response(JSON.stringify({
+      success: true,
+      tokens: result.results
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('List temporary access error:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: 'Failed to list temporary access tokens'
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// DELETE /api/admin/temporary-access/:token - Revoke temporary access token
+async function revokeTemporaryAccess(accessCode, request, env, corsHeaders) {
+  const authResult = await requireAdmin(request, env);
+  if (authResult.error) {
+    return new Response(JSON.stringify({
+      success: false,
+      error: authResult.error
+    }), {
+      status: authResult.status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+
+  try {
+    const userId = authResult.user.id;
+
+    // Check if token exists
+    const token = await env.DB.prepare(
+      'SELECT * FROM temporary_access WHERE access_code = ?'
+    ).bind(accessCode).first();
+
+    if (!token) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Temporary access token not found'
+      }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Revoke the token
+    await env.DB.prepare(`
+      UPDATE temporary_access
+      SET is_active = 0, revoked_at = CURRENT_TIMESTAMP, revoked_by_user_id = ?
+      WHERE access_code = ?
+    `).bind(userId, accessCode).run();
+
+    // Log the action
+    await env.DB.prepare(
+      'INSERT INTO audit_logs (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)'
+    ).bind(
+      userId,
+      'revoke_temporary_access',
+      JSON.stringify({ access_code: accessCode }),
+      request.headers.get('cf-connecting-ip') || 'unknown'
+    ).run();
+
+    return new Response(JSON.stringify({
+      success: true,
+      message: 'Temporary access revoked successfully'
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('Revoke temporary access error:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: 'Failed to revoke temporary access'
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// POST /api/auth/temporary-login - Login with temporary access code
+async function temporaryLogin(request, env, corsHeaders) {
+  try {
+    const { access_code } = await request.json();
+
+    if (!access_code) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Access code is required'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Validate the access code
+    const token = await env.DB.prepare(`
+      SELECT * FROM temporary_access
+      WHERE access_code = ?
+      AND is_active = 1
+      AND is_used = 0
+      AND datetime(expires_at) > datetime('now')
+    `).bind(access_code).first();
+
+    if (!token) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Invalid, expired, or already used access code'
+      }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Mark as used and update last activity
+    await env.DB.prepare(`
+      UPDATE temporary_access
+      SET is_used = 1,
+          used_at = CURRENT_TIMESTAMP,
+          last_activity_at = CURRENT_TIMESTAMP,
+          ip_address = ?
+      WHERE access_code = ?
+    `).bind(
+      request.headers.get('cf-connecting-ip') || 'unknown',
+      access_code
+    ).run();
+
+    // Generate JWT for this temporary session
+    const payload = {
+      type: 'temporary',
+      access_token: token.access_token,
+      access_level: token.access_level,
+      role: token.access_level, // Use access_level as role
+      expires_at: token.expires_at,
+      iat: Math.floor(Date.now() / 1000)
+    };
+
+    const jwtToken = await signJWT(payload, env.JWT_SECRET || 'default-secret-change-in-production');
+
+    // Log the login
+    await env.DB.prepare(
+      'INSERT INTO audit_logs (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)'
+    ).bind(
+      null, // No user_id for temporary access
+      'temporary_login',
+      JSON.stringify({
+        access_code,
+        access_level: token.access_level
+      }),
+      request.headers.get('cf-connecting-ip') || 'unknown'
+    ).run();
+
+    return new Response(JSON.stringify({
+      success: true,
+      token: jwtToken,
+      user: {
+        username: 'Temporary Access',
+        role: token.access_level,
+        access_type: 'temporary',
+        expires_at: token.expires_at
+      }
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('Temporary login error:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: 'Failed to process temporary login'
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+// POST /api/auth/verify-temporary-access - Verify temporary access token is valid
+async function verifyTemporaryAccess(request, env, corsHeaders) {
+  try {
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'No authorization token provided'
+      }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const token = authHeader.substring(7);
+    const payload = await verifyJWT(token, env.JWT_SECRET || 'default-secret-change-in-production');
+
+    if (!payload || payload.type !== 'temporary') {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Invalid temporary access token'
+      }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Check if still valid in database
+    const accessToken = await env.DB.prepare(`
+      SELECT * FROM temporary_access
+      WHERE access_token = ?
+      AND is_active = 1
+      AND datetime(expires_at) > datetime('now')
+    `).bind(payload.access_token).first();
+
+    if (!accessToken) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Temporary access has been revoked or expired'
+      }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Update last activity
+    await env.DB.prepare(`
+      UPDATE temporary_access
+      SET last_activity_at = CURRENT_TIMESTAMP
+      WHERE access_token = ?
+    `).bind(payload.access_token).run();
+
+    return new Response(JSON.stringify({
+      success: true,
+      valid: true,
+      access_level: accessToken.access_level,
+      expires_at: accessToken.expires_at
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('Verify temporary access error:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: 'Failed to verify temporary access'
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }

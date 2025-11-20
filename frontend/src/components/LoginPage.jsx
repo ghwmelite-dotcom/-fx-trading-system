@@ -7,6 +7,8 @@ const LoginPage = ({ onLogin }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [turnstileToken, setTurnstileToken] = useState('');
+  const [showTempAccess, setShowTempAccess] = useState(false);
+  const [tempAccessCode, setTempAccessCode] = useState('');
 
   // Trading stats animation
   const [animatedStats, setAnimatedStats] = useState({
@@ -99,6 +101,45 @@ const LoginPage = ({ onLogin }) => {
         window.turnstile.reset();
       }
       setTurnstileToken('');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTempAccessSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      // Call the temporary login endpoint
+      const apiUrl = 'https://fx-dashboard-api.ghwmelite.workers.dev';
+      const response = await fetch(`${apiUrl}/api/auth/temporary-login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ access_code: tempAccessCode })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Invalid access code');
+      }
+
+      // Store the token and user data
+      localStorage.setItem('auth_token', data.token);
+
+      // Call the onLogin callback with a special flag for temporary access
+      if (onLogin.temporary) {
+        await onLogin.temporary(data.user, data.token);
+      } else {
+        // Reload the page to trigger authentication
+        window.location.reload();
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to login with temporary access code.');
     } finally {
       setLoading(false);
     }
@@ -240,9 +281,36 @@ const LoginPage = ({ onLogin }) => {
               </div>
             )}
 
-            {/* Login Form */}
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Username Field */}
+            {/* Toggle between regular login and temporary access */}
+            <div className="flex gap-2 mb-6">
+              <button
+                type="button"
+                onClick={() => setShowTempAccess(false)}
+                className={`flex-1 py-2 rounded-lg font-medium transition-all ${
+                  !showTempAccess
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                Regular Login
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowTempAccess(true)}
+                className={`flex-1 py-2 rounded-lg font-medium transition-all ${
+                  showTempAccess
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                Temp Access
+              </button>
+            </div>
+
+            {!showTempAccess ? (
+              /* Login Form */
+              <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Username Field */}
               <div className="group">
                 <label className="block text-slate-300 text-sm font-medium mb-2">
                   Username or Email
@@ -315,6 +383,58 @@ const LoginPage = ({ onLogin }) => {
                 )}
               </button>
             </form>
+            ) : (
+              /* Temporary Access Form */
+              <form onSubmit={handleTempAccessSubmit} className="space-y-6">
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 mb-4">
+                  <p className="text-blue-300 text-sm">
+                    Enter the temporary access code provided by an administrator to get time-limited access to the admin portal.
+                  </p>
+                </div>
+
+                {/* Access Code Field */}
+                <div className="group">
+                  <label className="block text-slate-300 text-sm font-medium mb-2">
+                    Access Code
+                  </label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-purple-400 transition-colors" size={20} />
+                    <input
+                      type="text"
+                      value={tempAccessCode}
+                      onChange={(e) => setTempAccessCode(e.target.value.toUpperCase())}
+                      placeholder="XXXX-XXXX"
+                      disabled={loading}
+                      required
+                      className="w-full pl-10 pr-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed font-mono text-lg tracking-wider"
+                      maxLength={9}
+                    />
+                  </div>
+                  <p className="text-slate-400 text-xs mt-2">
+                    Format: XXXX-XXXX (8 characters)
+                  </p>
+                </div>
+
+                {/* Submit Button */}
+                <button
+                  type="submit"
+                  disabled={loading || !tempAccessCode}
+                  className="w-full py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-xl font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg hover:shadow-purple-500/50 transform hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  {loading ? (
+                    <>
+                      <Loader className="animate-spin" size={20} />
+                      Verifying...
+                    </>
+                  ) : (
+                    <>
+                      <Lock size={18} />
+                      Access Portal
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
 
             {/* Default Credentials Hint (Remove in production) */}
             <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
