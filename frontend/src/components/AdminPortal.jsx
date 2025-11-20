@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, Activity, Shield, Plus, Edit, Trash2, Search, Download, X, Check, AlertCircle, Settings, Key } from 'lucide-react';
+import { Users, Activity, Shield, Plus, Edit, Trash2, Search, Download, X, Check, AlertCircle, Settings, Key, Copy } from 'lucide-react';
 import PlatformSettings from './PlatformSettings';
 
 const AdminPortal = ({ apiUrl, apiKey, currentUser }) => {
@@ -19,6 +19,7 @@ const AdminPortal = ({ apiUrl, apiKey, currentUser }) => {
   // Temporary Access State
   const [tempAccessTokens, setTempAccessTokens] = useState([]);
   const [showGenerateToken, setShowGenerateToken] = useState(false);
+  const [generatedToken, setGeneratedToken] = useState(null);
 
   const showNotification = (message, type = 'success') => {
     setNotification({ message, type });
@@ -197,16 +198,8 @@ const AdminPortal = ({ apiUrl, apiKey, currentUser }) => {
       setShowGenerateToken(false);
       loadTempAccessTokens();
 
-      // Show the generated code in an alert
-      const expiresAt = new Date(data.expires_at);
-      alert(
-        `Temporary Access Created!\n\n` +
-        `Access Code: ${data.access_code}\n` +
-        `Access Level: ${data.access_level}\n` +
-        `Duration: ${data.duration_minutes} minutes\n` +
-        `Expires At: ${expiresAt.toLocaleString()}\n\n` +
-        `Share this code with the user. They can use it to login at the temporary access page.`
-      );
+      // Show the generated code in a copyable modal
+      setGeneratedToken(data);
 
       return data;
     } catch (error) {
@@ -403,6 +396,14 @@ const AdminPortal = ({ apiUrl, apiKey, currentUser }) => {
         <GenerateTokenModal
           onClose={() => setShowGenerateToken(false)}
           onSubmit={handleGenerateToken}
+        />
+      )}
+
+      {/* Generated Token Display Modal */}
+      {generatedToken && (
+        <GeneratedTokenModal
+          token={generatedToken}
+          onClose={() => setGeneratedToken(null)}
         />
       )}
     </div>
@@ -1014,6 +1015,92 @@ const GenerateTokenModal = ({ onClose, onSubmit }) => {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+};
+
+// Generated Token Display Modal Component
+const GeneratedTokenModal = ({ token, onClose }) => {
+  const [copied, setCopied] = useState(false);
+  const expiresAt = new Date(token.expires_at);
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-slate-800 rounded-2xl max-w-2xl w-full border border-slate-700 shadow-2xl">
+        <div className="p-6 border-b border-slate-700">
+          <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+            <Check className="text-green-400" size={28} />
+            Temporary Access Created!
+          </h2>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* Access Code Display */}
+          <div className="bg-gradient-to-br from-purple-500/20 to-blue-500/20 rounded-xl p-6 border border-purple-500/30">
+            <label className="block text-slate-300 text-sm font-medium mb-3">
+              Access Code
+            </label>
+            <div className="flex items-center gap-3">
+              <code className="flex-1 text-4xl font-mono font-bold text-purple-300 tracking-widest text-center bg-slate-900/50 rounded-lg py-4 px-6 select-all">
+                {token.access_code}
+              </code>
+              <button
+                onClick={() => copyToClipboard(token.access_code)}
+                className="p-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-all"
+                title="Copy to clipboard"
+              >
+                {copied ? <Check size={24} /> : <Copy size={24} />}
+              </button>
+            </div>
+            <p className="text-slate-400 text-sm mt-3 text-center">
+              Click the code to select it, or use the copy button
+            </p>
+          </div>
+
+          {/* Token Details */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-slate-700/30 rounded-lg p-4">
+              <p className="text-slate-400 text-sm mb-1">Access Level</p>
+              <p className="text-white font-medium capitalize">{token.access_level}</p>
+            </div>
+            <div className="bg-slate-700/30 rounded-lg p-4">
+              <p className="text-slate-400 text-sm mb-1">Duration</p>
+              <p className="text-white font-medium">{token.duration_minutes} minutes</p>
+            </div>
+            <div className="bg-slate-700/30 rounded-lg p-4 col-span-2">
+              <p className="text-slate-400 text-sm mb-1">Expires At</p>
+              <p className="text-white font-medium">{expiresAt.toLocaleString()}</p>
+            </div>
+          </div>
+
+          {/* Instructions */}
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+            <p className="text-blue-300 text-sm font-medium mb-2">📋 Instructions:</p>
+            <ol className="text-slate-300 text-sm space-y-1 list-decimal list-inside">
+              <li>Share this access code with the user</li>
+              <li>They should go to the login page</li>
+              <li>Click the "Temp Access" tab</li>
+              <li>Enter the code to gain immediate access</li>
+              <li>Access expires automatically after {token.duration_minutes} minutes</li>
+            </ol>
+          </div>
+
+          {/* Close Button */}
+          <button
+            onClick={onClose}
+            className="w-full py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-xl font-medium transition-all shadow-lg"
+          >
+            Done
+          </button>
+        </div>
       </div>
     </div>
   );
