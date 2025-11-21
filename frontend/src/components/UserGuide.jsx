@@ -832,6 +832,387 @@ const UserGuide = () => {
         ]
       },
       {
+        id: 'advanced-features',
+        title: 'Advanced Features',
+        icon: Zap,
+        color: 'text-purple-400',
+        sections: [
+          {
+            id: 'ea-backtesting',
+            title: 'EA Backtest Reports',
+            content: (
+              <div className="space-y-4">
+                <p className="text-slate-300">
+                  Upload and analyze your MetaTrader 5 Expert Advisor backtest reports directly in the dashboard.
+                  No complex setup required - just upload the HTML report from MT5 Strategy Tester!
+                </p>
+
+                <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <Lightbulb className="text-purple-400 flex-shrink-0 mt-1" size={20} />
+                    <div>
+                      <h4 className="text-purple-400 font-semibold mb-2">Why This Approach?</h4>
+                      <p className="text-slate-300 text-sm">
+                        We use MT5's native backtesting engine for 100% accuracy. Simply upload the HTML report
+                        and we'll parse all metrics automatically. No servers, no complex setup!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-white font-semibold">Step-by-Step Guide:</h4>
+
+                  <div className="bg-slate-800 rounded-lg p-4 space-y-3">
+                    <h5 className="text-white font-semibold flex items-center gap-2">
+                      <span className="bg-purple-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">1</span>
+                      Run Backtest in MT5
+                    </h5>
+                    <div className="ml-8 space-y-2">
+                      <p className="text-slate-400 text-sm">
+                        Open MT5 Strategy Tester (View → Strategy Tester or Ctrl+R)
+                      </p>
+                      <ul className="space-y-1 text-slate-400 text-sm">
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span>Select your Expert Advisor</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span>Choose symbol and timeframe</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span>Set date range and initial deposit</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span>Click "Start" to run the backtest</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-800 rounded-lg p-4 space-y-3">
+                    <h5 className="text-white font-semibold flex items-center gap-2">
+                      <span className="bg-purple-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">2</span>
+                      Save Report as HTML
+                    </h5>
+                    <div className="ml-8 space-y-2">
+                      <p className="text-slate-400 text-sm">
+                        After backtest completes:
+                      </p>
+                      <ul className="space-y-1 text-slate-400 text-sm">
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span>Right-click on the result in the Results tab</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span>Select "Save as Report"</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span>Choose "Open HTML" format</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span>Save the .htm file to your computer</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-800 rounded-lg p-4 space-y-3">
+                    <h5 className="text-white font-semibold flex items-center gap-2">
+                      <span className="bg-purple-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">3</span>
+                      Upload to Dashboard
+                    </h5>
+                    <div className="ml-8 space-y-2">
+                      <p className="text-slate-400 text-sm">
+                        In the dashboard:
+                      </p>
+                      <ul className="space-y-1 text-slate-400 text-sm">
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span>Go to "EA Manager" tab</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span>Click "Upload Report" tab</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span>Select your .htm file</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span>Enter EA name (auto-filled from filename)</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span>Optionally add description/notes</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span>Click "Upload Report"</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-800 rounded-lg p-4 space-y-3">
+                    <h5 className="text-white font-semibold flex items-center gap-2">
+                      <span className="bg-purple-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">4</span>
+                      View Results
+                    </h5>
+                    <div className="ml-8 space-y-2">
+                      <p className="text-slate-400 text-sm">
+                        The report is parsed automatically and displays:
+                      </p>
+                      <div className="grid md:grid-cols-2 gap-2 mt-2">
+                        {[
+                          'Net Profit & ROI',
+                          'Profit Factor',
+                          'Win Rate & Loss Rate',
+                          'Max Drawdown',
+                          'Total Trades',
+                          'Sharpe Ratio',
+                          'Recovery Factor',
+                          'Average Win/Loss',
+                          'Largest Win/Loss',
+                          'Consecutive Stats',
+                          'Trade List',
+                          'And 20+ more metrics!'
+                        ].map(metric => (
+                          <div key={metric} className="flex items-center gap-2 text-slate-400 text-sm bg-slate-900 rounded p-2">
+                            <CheckCircle className="text-green-400" size={14} />
+                            <span>{metric}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle className="text-green-400 flex-shrink-0 mt-1" size={20} />
+                    <div>
+                      <h4 className="text-green-400 font-semibold mb-2">Benefits</h4>
+                      <ul className="text-slate-300 text-sm space-y-1">
+                        <li className="flex items-start gap-2">
+                          <span>✓</span>
+                          <span>100% accurate results (uses MT5's real engine)</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span>✓</span>
+                          <span>No server setup or infrastructure needed</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span>✓</span>
+                          <span>Upload in seconds vs waiting for backtests to run</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span>✓</span>
+                          <span>Compare multiple EAs side-by-side</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span>✓</span>
+                          <span>All historical data already in MT5</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          },
+          {
+            id: 'temp-access',
+            title: 'Temporary Access',
+            content: (
+              <div className="space-y-4">
+                <p className="text-slate-300">
+                  Admins can generate temporary access codes to grant time-limited access to the dashboard
+                  without creating permanent user accounts. Perfect for demos, consultations, or temporary collaboration.
+                </p>
+
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <Shield className="text-blue-400 flex-shrink-0 mt-1" size={20} />
+                    <div>
+                      <h4 className="text-blue-400 font-semibold mb-2">Security Note</h4>
+                      <p className="text-slate-300 text-sm">
+                        Temporary access codes automatically expire after the set duration and can be revoked
+                        at any time by admins. All temporary access sessions are logged for security.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-white font-semibold">For Admins - Generating Access Codes:</h4>
+
+                  <div className="bg-slate-800 rounded-lg p-4 space-y-3">
+                    <h5 className="text-white font-semibold flex items-center gap-2">
+                      <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">1</span>
+                      Navigate to Temp Access
+                    </h5>
+                    <div className="ml-8 space-y-2">
+                      <p className="text-slate-400 text-sm">
+                        In Admin Portal → Click "Temp Access" tab
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-800 rounded-lg p-4 space-y-3">
+                    <h5 className="text-white font-semibold flex items-center gap-2">
+                      <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">2</span>
+                      Generate Token
+                    </h5>
+                    <div className="ml-8 space-y-2">
+                      <p className="text-slate-400 text-sm">
+                        Click "Generate Token" and configure:
+                      </p>
+                      <ul className="space-y-1 text-slate-400 text-sm">
+                        <li className="flex items-start gap-2">
+                          <span className="text-blue-400">•</span>
+                          <span><strong>Duration:</strong> 30 min, 60 min, 2h, 4h, 8h, or 24h</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-blue-400">•</span>
+                          <span><strong>Access Level:</strong> Full Admin or Read Only</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-blue-400">•</span>
+                          <span><strong>Email:</strong> (Optional) Who you're granting access to</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-blue-400">•</span>
+                          <span><strong>Notes:</strong> (Optional) Purpose of this access</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-800 rounded-lg p-4 space-y-3">
+                    <h5 className="text-white font-semibold flex items-center gap-2">
+                      <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">3</span>
+                      Share the Code
+                    </h5>
+                    <div className="ml-8 space-y-2">
+                      <p className="text-slate-400 text-sm">
+                        After generation, you'll see a modal with:
+                      </p>
+                      <ul className="space-y-1 text-slate-400 text-sm">
+                        <li className="flex items-start gap-2">
+                          <span className="text-blue-400">•</span>
+                          <span>Large, copyable access code (format: XXXX-XXXX)</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-blue-400">•</span>
+                          <span>Expiration time</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-blue-400">•</span>
+                          <span>One-click copy button</span>
+                        </li>
+                      </ul>
+                      <p className="text-slate-400 text-sm mt-2">
+                        Share this code with the person you want to grant access to via email, message, etc.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3 mt-6">
+                  <h4 className="text-white font-semibold">For Users - Using Access Codes:</h4>
+
+                  <div className="bg-slate-800 rounded-lg p-4 space-y-3">
+                    <h5 className="text-white font-semibold flex items-center gap-2">
+                      <span className="bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">1</span>
+                      Go to Login Page
+                    </h5>
+                    <div className="ml-8">
+                      <p className="text-slate-400 text-sm">
+                        Click any "Login" button on the landing page
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-800 rounded-lg p-4 space-y-3">
+                    <h5 className="text-white font-semibold flex items-center gap-2">
+                      <span className="bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">2</span>
+                      Switch to Temp Access
+                    </h5>
+                    <div className="ml-8">
+                      <p className="text-slate-400 text-sm">
+                        Click the "Temp Access" toggle button at the top of the login modal
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-800 rounded-lg p-4 space-y-3">
+                    <h5 className="text-white font-semibold flex items-center gap-2">
+                      <span className="bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">3</span>
+                      Enter Code
+                    </h5>
+                    <div className="ml-8 space-y-2">
+                      <p className="text-slate-400 text-sm">
+                        Enter the 8-character access code in format: XXXX-XXXX
+                      </p>
+                      <p className="text-slate-400 text-sm">
+                        Code is automatically converted to uppercase
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-800 rounded-lg p-4 space-y-3">
+                    <h5 className="text-white font-semibold flex items-center gap-2">
+                      <span className="bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">4</span>
+                      Access Portal
+                    </h5>
+                    <div className="ml-8">
+                      <p className="text-slate-400 text-sm">
+                        Click "Access Portal" to login. Your session will automatically expire when the time limit is reached.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="text-orange-400 flex-shrink-0 mt-1" size={20} />
+                    <div>
+                      <h4 className="text-orange-400 font-semibold mb-2">Important Notes</h4>
+                      <ul className="text-slate-300 text-sm space-y-1">
+                        <li className="flex items-start gap-2">
+                          <span>•</span>
+                          <span>Codes can be used multiple times until they expire</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span>•</span>
+                          <span>Admins can view all active/expired codes in the Temp Access tab</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span>•</span>
+                          <span>Admins can revoke codes at any time before expiration</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span>•</span>
+                          <span>All temporary access is logged with IP addresses for security</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          }
+        ]
+      },
+      {
         id: 'tips-tricks',
         title: 'Tips & Tricks',
         icon: Lightbulb,
