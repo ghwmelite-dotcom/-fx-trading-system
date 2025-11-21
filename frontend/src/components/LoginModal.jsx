@@ -137,8 +137,8 @@ const LoginModal = ({ isOpen, onClose, onLogin, apiUrl }) => {
 
         {/* Main Modal */}
         <div className="relative bg-gradient-to-br from-slate-900/95 to-slate-800/95 backdrop-blur-xl xs:rounded-2xl border-0 xs:border border-white/10 shadow-2xl min-h-full xs:min-h-0 flex flex-col">
-          {/* Subtle animated border */}
-          <div className="absolute inset-0 xs:rounded-2xl bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-blue-500/10 animate-gradient-shift"></div>
+          {/* Subtle animated border - pointer events disabled so it doesn't block clicks */}
+          <div className="absolute inset-0 xs:rounded-2xl bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-blue-500/10 animate-gradient-shift pointer-events-none"></div>
 
           {/* Close Button - Larger touch target on mobile */}
           <button
@@ -175,7 +175,7 @@ const LoginModal = ({ isOpen, onClose, onLogin, apiUrl }) => {
           </div>
 
           {/* Toggle Section - Fully Responsive */}
-          <div className="px-4 xs:px-5 sm:px-8 pt-2 pb-4">
+          <div className="relative z-10 px-4 xs:px-5 sm:px-8 pt-2 pb-4">
             <div className="flex gap-2 xs:gap-2.5 sm:gap-3">
               <button
                 type="button"
