@@ -9,6 +9,10 @@ import {
   mergeDataSources,
   getRateLimitStatus
 } from './dataSourceService.js';
+import { EARunner } from './mql5/eaRunner.js';
+import { Lexer } from './mql5/lexer.js';
+import { Parser } from './mql5/parser.js';
+import { Transpiler } from './mql5/transpiler.js';
 
 /**
  * Register all backtesting routes
@@ -163,16 +167,17 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
   });
 
   // DELETE /api/backtest/data/:symbol/:timeframe - Delete historical data
+  // NOTE: This route must NOT match /api/backtest/data/datasets/:id
   routes.push({
     method: 'DELETE',
-    pattern: /^\/api\/backtest\/data\/([^\/]+)\/([^\/]+)$/,
+    pattern: /^\/api\/backtest\/data\/([A-Z]{6})\/([^\/]+)$/,  // Only match 6-letter forex pairs
     handler: async (request, env, matches) => {
       try {
         const authResult = await requireAuth(request, env);
         if (authResult.error) return jsonResponse(authResult, authResult.status);
 
-        const symbol = decodeURIComponent(matches[1]);
-        const timeframe = decodeURIComponent(matches[2]);
+        const symbol = decodeURIComponent(matches[0]);
+        const timeframe = decodeURIComponent(matches[1]);
 
         await env.DB.prepare(`
           DELETE FROM historical_data
@@ -308,8 +313,9 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
           ).run();
         }
 
-        // Create or update dataset record
-        const datasetName = body.datasetName || `${body.symbol} ${body.timeframe} - ${new Date().toLocaleDateString()}`;
+        // Create or update dataset record - make name unique with timestamp
+        const now = new Date();
+        const datasetName = body.datasetName || `${body.symbol} ${body.timeframe} - ${now.toLocaleDateString()} ${now.toLocaleTimeString()}`;
 
         const datasetResult = await env.DB.prepare(`
           INSERT INTO datasets (
@@ -346,109 +352,168 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
           WHERE id = ?
         `).bind(jobId).run();
 
-        let inserted = 0;
-        for (const candle of data) {
+        console.log(`Inserting ${data.length} candles into dataset ${datasetId}`);
+
+        // Use batch operations to avoid D1 query limit
+        // Process in chunks of 500 to stay well under the limit
+        const BATCH_SIZE = 500;
+        let totalInserted = 0;
+        let totalErrors = 0;
+
+        for (let i = 0; i < data.length; i += BATCH_SIZE) {
+          const chunk = data.slice(i, i + BATCH_SIZE);
+          console.log(`Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(data.length / BATCH_SIZE)} (${chunk.length} candles)`);
+
           try {
-            await env.DB.prepare(`
-              INSERT OR IGNORE INTO historical_data (
-                user_id, symbol, timeframe, timestamp,
-                open, high, low, close, volume,
-                data_source, fetch_source, is_gap_filled
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'api', ?, ?)
-            `).bind(
-              authResult.user.id,
-              body.symbol.toUpperCase(),
-              body.timeframe.toUpperCase(),
-              candle.timestamp,
-              candle.open,
-              candle.high,
-              candle.low,
-              candle.close,
-              candle.volume || 0,
-              candle.source || fetchResult.source,
-              candle.filled ? 1 : 0
-            ).run();
-            inserted++;
+            // Build batch of prepared statements
+            const statements = chunk.map(candle =>
+              env.DB.prepare(`
+                INSERT OR IGNORE INTO historical_data (
+                  user_id, symbol, timeframe, timestamp,
+                  open, high, low, close, volume,
+                  data_source, fetch_source, is_gap_filled, dataset_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'api', ?, ?, ?)
+              `).bind(
+                authResult.user.id,
+                body.symbol.toUpperCase(),
+                body.timeframe.toUpperCase(),
+                candle.timestamp,
+                candle.open,
+                candle.high,
+                candle.low,
+                candle.close,
+                candle.volume || 0,
+                candle.source || fetchResult.source,
+                candle.filled ? 1 : 0,
+                datasetId
+              )
+            );
+
+            // Execute batch
+            const results = await env.DB.batch(statements);
+
+            // Count successful inserts
+            const batchInserted = results.reduce((sum, r) => sum + (r.meta?.changes || 0), 0);
+            totalInserted += batchInserted;
+
+            console.log(`Batch complete: ${batchInserted} inserted, ${chunk.length - batchInserted} duplicates ignored`);
+
           } catch (error) {
-            console.error('Error inserting candle:', error);
+            totalErrors += chunk.length;
+            console.error(`Batch insert error for chunk starting at ${i}:`, error.message);
           }
         }
 
-        // Update job as completed
-        await env.DB.prepare(`
-          UPDATE data_fetch_jobs
-          SET status = 'completed',
-              dataset_id = ?,
-              candles_fetched = ?,
-              gaps_filled = ?,
-              validation_issues = ?,
-              primary_source = ?,
-              sources_used = ?,
-              completed_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).bind(
-          datasetId,
-          inserted,
-          gapsFilled,
-          validationResult?.invalid || 0,
-          fetchResult.source,
-          JSON.stringify([fetchResult.source]),
-          jobId
-        ).run();
+        console.log(`Total: ${totalInserted} candles inserted, ${totalErrors} errors, ${data.length - totalInserted - totalErrors} duplicates ignored`);
 
-        // Log successful API usage
-        await env.DB.prepare(`
-          INSERT INTO api_usage (
-            user_id, provider, symbol, timeframe,
-            status, candles_fetched, requested_at
-          ) VALUES (?, ?, ?, ?, 'success', ?, CURRENT_TIMESTAMP)
-        `).bind(
-          authResult.user.id,
-          fetchResult.source,
-          body.symbol,
-          body.timeframe,
-          inserted
-        ).run();
+        // Verify actual count in database
+        let actualCount = totalInserted;
+        try {
+          const verifyCount = await env.DB.prepare(`
+            SELECT COUNT(*) as count FROM historical_data WHERE dataset_id = ?
+          `).bind(datasetId).first();
+          console.log(`Verification: historical_data has ${verifyCount.count} rows for dataset ${datasetId}`);
+          actualCount = verifyCount.count;
 
-        // Create data quality report
-        if (validationResult) {
+          // Update dataset with actual candle count
           await env.DB.prepare(`
-            INSERT INTO data_quality_reports (
-              dataset_id, user_id, total_candles, valid_candles, invalid_candles,
-              gap_filled_candles, ohlc_errors, coverage_percent, issues
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            UPDATE datasets SET total_candles = ? WHERE id = ?
+          `).bind(actualCount, datasetId).run();
+        } catch (error) {
+          console.error('Error updating dataset count:', error.message);
+        }
+
+        // Update job as completed (non-critical)
+        try {
+          await env.DB.prepare(`
+            UPDATE data_fetch_jobs
+            SET status = 'completed',
+                dataset_id = ?,
+                candles_fetched = ?,
+                gaps_filled = ?,
+                validation_issues = ?,
+                primary_source = ?,
+                sources_used = ?,
+                completed_at = CURRENT_TIMESTAMP
+            WHERE id = ?
           `).bind(
             datasetId,
-            authResult.user.id,
-            validationResult.total,
-            validationResult.valid,
-            validationResult.invalid,
+            totalInserted,
             gapsFilled,
-            validationResult.invalid,
-            (validationResult.valid / validationResult.total * 100).toFixed(2),
-            JSON.stringify(validationResult.issues.slice(0, 100)) // Limit to first 100 issues
+            validationResult?.invalid || 0,
+            fetchResult.source,
+            JSON.stringify([fetchResult.source]),
+            jobId
           ).run();
+        } catch (error) {
+          console.error('Error updating fetch job:', error.message);
         }
+
+        // Log successful API usage (non-critical)
+        try {
+          await env.DB.prepare(`
+            INSERT INTO api_usage (
+              user_id, provider, symbol, timeframe,
+              status, candles_fetched, requested_at
+            ) VALUES (?, ?, ?, ?, 'success', ?, CURRENT_TIMESTAMP)
+          `).bind(
+            authResult.user.id,
+            fetchResult.source,
+            body.symbol,
+            body.timeframe,
+            totalInserted
+          ).run();
+        } catch (error) {
+          console.error('Error logging API usage:', error.message);
+        }
+
+        // Create data quality report (non-critical)
+        try {
+          if (validationResult) {
+            await env.DB.prepare(`
+              INSERT INTO data_quality_reports (
+                dataset_id, user_id, total_candles, valid_candles, invalid_candles,
+                gap_filled_candles, ohlc_errors, coverage_percent, issues
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).bind(
+              datasetId,
+              authResult.user.id,
+              validationResult.total,
+              validationResult.valid,
+              validationResult.invalid,
+              gapsFilled,
+              validationResult.invalid,
+              (validationResult.valid / validationResult.total * 100).toFixed(2),
+              JSON.stringify(validationResult.issues.slice(0, 100)) // Limit to first 100 issues
+            ).run();
+          }
+        } catch (error) {
+          console.error('Error creating quality report:', error.message);
+        }
+
+        console.log('Data fetch completed successfully');
 
         return jsonResponse({
           success: true,
           jobId,
           datasetId,
           source: fetchResult.source,
-          candles: inserted,
+          candles: actualCount,
           dateRange: {
             start: data[0].timestamp,
             end: data[data.length - 1].timestamp
           },
           gapsFilled,
           validationIssues: validationResult?.invalid || 0,
-          message: `Successfully fetched ${inserted} candles from ${fetchResult.source}`
+          message: `Successfully fetched ${actualCount} candles from ${fetchResult.source}`
         });
       } catch (error) {
         console.error('Data fetch error:', error);
+        console.error('Error stack:', error.stack);
         return jsonResponse({
           error: 'Data fetch failed',
-          details: error.message
+          details: error.message,
+          stack: error.stack
         }, 500);
       }
     }
@@ -588,9 +653,12 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         if (authResult.error) return jsonResponse(authResult, authResult.status);
 
         const result = await env.DB.prepare(`
-          SELECT * FROM dataset_overview
-          WHERE user_id = ?
-          ORDER BY created_at DESC
+          SELECT
+            d.*,
+            (SELECT COUNT(*) FROM historical_data WHERE dataset_id = d.id) as candles
+          FROM datasets d
+          WHERE d.user_id = ?
+          ORDER BY d.created_at DESC
         `).bind(authResult.user.id).all();
 
         return jsonResponse({ datasets: result.results || [] });
@@ -598,6 +666,55 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         console.error('Datasets fetch error:', error);
         return jsonResponse({
           error: 'Failed to fetch datasets',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // GET /api/backtest/data/datasets/:id/candles - Get candles for a dataset
+  routes.push({
+    method: 'GET',
+    pattern: /^\/api\/backtest\/data\/datasets\/(\d+)\/candles$/,
+    handler: async (request, env, matches) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const datasetId = parseInt(matches[0]);
+
+        // Verify ownership
+        const dataset = await env.DB.prepare(`
+          SELECT id, symbol, timeframe FROM datasets
+          WHERE id = ? AND user_id = ?
+        `).bind(datasetId, authResult.user.id).first();
+
+        if (!dataset) {
+          return jsonResponse({ error: 'Dataset not found' }, 404);
+        }
+
+        // Fetch candles
+        const result = await env.DB.prepare(`
+          SELECT timestamp, open, high, low, close, volume
+          FROM historical_data
+          WHERE dataset_id = ?
+          ORDER BY timestamp ASC
+        `).bind(datasetId).all();
+
+        console.log(`Fetched ${result.results.length} candles for dataset ${datasetId}`);
+
+        return jsonResponse({
+          candles: result.results || [],
+          dataset: {
+            id: dataset.id,
+            symbol: dataset.symbol,
+            timeframe: dataset.timeframe
+          }
+        });
+      } catch (error) {
+        console.error('Candles fetch error:', error);
+        return jsonResponse({
+          error: 'Failed to fetch candles',
           details: error.message
         }, 500);
       }
@@ -613,7 +730,9 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         const authResult = await requireAuth(request, env);
         if (authResult.error) return jsonResponse(authResult, authResult.status);
 
-        const datasetId = parseInt(matches[1]);
+        const datasetId = parseInt(matches[0]);
+
+        console.log(`Attempting to delete dataset ${datasetId} for user ${authResult.user.id}`);
 
         // Verify ownership
         const dataset = await env.DB.prepare(`
@@ -621,24 +740,49 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
           WHERE id = ? AND user_id = ?
         `).bind(datasetId, authResult.user.id).first();
 
+        console.log('Dataset found:', dataset ? `${dataset.id} - ${dataset.symbol} ${dataset.timeframe}` : 'null');
+
         if (!dataset) {
           return jsonResponse({ error: 'Dataset not found' }, 404);
         }
 
-        // Delete dataset (will cascade to related tables)
-        await env.DB.prepare(`
+        // Count historical data before deletion
+        const histDataCount = await env.DB.prepare(`
+          SELECT COUNT(*) as count FROM historical_data WHERE dataset_id = ?
+        `).bind(datasetId).first();
+        console.log(`Historical data rows to delete: ${histDataCount.count}`);
+
+        // Delete associated historical_data first (using dataset_id)
+        const histDeleteResult = await env.DB.prepare(`
+          DELETE FROM historical_data WHERE dataset_id = ?
+        `).bind(datasetId).run();
+        console.log('Historical data deleted:', histDeleteResult.meta.changes, 'rows');
+
+        // Delete dataset (will cascade to related tables due to foreign keys)
+        const datasetDeleteResult = await env.DB.prepare(`
           DELETE FROM datasets WHERE id = ?
         `).bind(datasetId).run();
+        console.log('Dataset deleted:', datasetDeleteResult.meta.changes, 'rows');
 
-        // Also delete associated historical_data
-        await env.DB.prepare(`
-          DELETE FROM historical_data
-          WHERE user_id = ? AND symbol = ? AND timeframe = ?
-        `).bind(authResult.user.id, dataset.symbol, dataset.timeframe).run();
+        // Verify deletion
+        const stillExists = await env.DB.prepare(`
+          SELECT COUNT(*) as count FROM datasets WHERE id = ?
+        `).bind(datasetId).first();
+        console.log(`Dataset ${datasetId} still exists:`, stillExists.count > 0);
 
         return jsonResponse({
           success: true,
-          message: 'Dataset deleted successfully'
+          message: 'Dataset deleted successfully',
+          debug: {
+            datasetId: datasetId,
+            userId: authResult.user.id,
+            datasetFound: !!dataset,
+            datasetName: dataset ? `${dataset.symbol} ${dataset.timeframe}` : null,
+            historicalDataCount: histDataCount.count,
+            deletedHistoricalData: histDeleteResult.meta.changes,
+            deletedDataset: datasetDeleteResult.meta.changes,
+            stillExists: stillExists.count > 0
+          }
         });
       } catch (error) {
         console.error('Dataset delete error:', error);
@@ -737,7 +881,7 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         const authResult = await requireAuth(request, env);
         if (authResult.error) return jsonResponse(authResult, authResult.status);
 
-        const keyId = parseInt(matches[1]);
+        const keyId = parseInt(matches[0]);
 
         await env.DB.prepare(`
           DELETE FROM api_keys
@@ -869,7 +1013,7 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         const authResult = await requireAuth(request, env);
         if (authResult.error) return jsonResponse(authResult, authResult.status);
 
-        const strategyId = parseInt(matches[1]);
+        const strategyId = parseInt(matches[0]);
 
         const result = await env.DB.prepare(`
           SELECT * FROM strategies
@@ -907,7 +1051,7 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         const authResult = await requireAuth(request, env);
         if (authResult.error) return jsonResponse(authResult, authResult.status);
 
-        const strategyId = parseInt(matches[1]);
+        const strategyId = parseInt(matches[0]);
         const body = await request.json();
 
         // Verify ownership
@@ -974,7 +1118,7 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         const authResult = await requireAuth(request, env);
         if (authResult.error) return jsonResponse(authResult, authResult.status);
 
-        const strategyId = parseInt(matches[1]);
+        const strategyId = parseInt(matches[0]);
 
         await env.DB.prepare(`
           DELETE FROM strategies
@@ -1201,7 +1345,7 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         const authResult = await requireAuth(request, env);
         if (authResult.error) return jsonResponse(authResult, authResult.status);
 
-        const backtestId = parseInt(matches[1]);
+        const backtestId = parseInt(matches[0]);
 
         // Get backtest details
         const backtest = await env.DB.prepare(`
@@ -1255,7 +1399,7 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         const authResult = await requireAuth(request, env);
         if (authResult.error) return jsonResponse(authResult, authResult.status);
 
-        const backtestId = parseInt(matches[1]);
+        const backtestId = parseInt(matches[0]);
 
         await env.DB.prepare(`
           DELETE FROM backtests
@@ -1295,11 +1439,6 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         // Read MQL5 code
         const mql5Code = await file.text();
         const fileSize = mql5Code.length;
-
-        // Import parser and transpiler dynamically
-        const { Lexer } = await import('./mql5/lexer.js');
-        const { Parser } = await import('./mql5/parser.js');
-        const { Transpiler } = await import('./mql5/transpiler.js');
 
         let transpiledCode = null;
         let parameters = [];
@@ -1425,7 +1564,8 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         const authResult = await requireAuth(request, env);
         if (authResult.error) return jsonResponse(authResult, authResult.status);
 
-        const eaId = parseInt(matches[1]);
+        const eaId = parseInt(matches[0]);
+        console.log(`Fetching EA ${eaId} for user ${authResult.user.id}`);
 
         const ea = await env.DB.prepare(`
           SELECT
@@ -1434,7 +1574,6 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
             description,
             version,
             parameters,
-            original_code,
             transpiled_code,
             file_size,
             status,
@@ -1446,23 +1585,94 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         `).bind(eaId, authResult.user.id).first();
 
         if (!ea) {
+          console.log(`EA ${eaId} not found for user ${authResult.user.id}`);
           return jsonResponse({ error: 'EA not found' }, 404);
         }
 
-        return jsonResponse({
+        console.log(`EA found: ${ea.name}, transpiled_code length: ${ea.transpiled_code?.length || 0}`);
+
+        // Check if transpiled_code exists
+        if (!ea.transpiled_code) {
+          console.error('No transpiled code found for EA:', ea.name);
+          return jsonResponse({
+            error: 'EA has no transpiled code',
+            details: 'The EA was not successfully transpiled during upload'
+          }, 500);
+        }
+
+        // Build response object carefully
+        const response = {
           success: true,
           ea: {
-            ...ea,
+            id: ea.id,
+            name: ea.name,
+            description: ea.description,
+            version: ea.version,
             parameters: JSON.parse(ea.parameters || '[]'),
+            transpiled_code: ea.transpiled_code,
+            file_size: ea.file_size,
+            status: ea.status,
             parse_errors: JSON.parse(ea.parse_errors || '[]'),
+            uploaded_at: ea.uploaded_at,
+            updated_at: ea.updated_at,
             file_size_kb: (ea.file_size / 1024).toFixed(2)
+          }
+        };
+
+        console.log(`Returning EA details, response size: ~${JSON.stringify(response).length} bytes`);
+
+        return jsonResponse(response);
+
+      } catch (error) {
+        console.error('EA fetch error:', error);
+        console.error('Error stack:', error.stack);
+        return jsonResponse({
+          error: 'Failed to fetch EA',
+          details: error.message,
+          stack: error.stack
+        }, 500);
+      }
+    }
+  });
+
+  // GET /api/backtest/ea/:id/code - Download transpiled code as text
+  routes.push({
+    method: 'GET',
+    pattern: /^\/api\/backtest\/ea\/(\d+)\/code$/,
+    handler: async (request, env, matches) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const eaId = parseInt(matches[0]);
+
+        const ea = await env.DB.prepare(`
+          SELECT name, transpiled_code
+          FROM expert_advisors
+          WHERE id = ? AND user_id = ?
+        `).bind(eaId, authResult.user.id).first();
+
+        if (!ea) {
+          return jsonResponse({ error: 'EA not found' }, 404);
+        }
+
+        if (!ea.transpiled_code) {
+          return jsonResponse({ error: 'No transpiled code available' }, 404);
+        }
+
+        // Return as plain text
+        return new Response(ea.transpiled_code, {
+          headers: {
+            'Content-Type': 'text/javascript',
+            'Content-Disposition': `attachment; filename="${ea.name}_transpiled.js"`,
+            'Access-Control-Allow-Origin': '*'
           }
         });
 
       } catch (error) {
-        console.error('EA fetch error:', error);
+        console.error('Code download error:', error);
         return jsonResponse({
-          error: 'Failed to fetch EA',
+          error: 'Failed to download code',
           details: error.message
         }, 500);
       }
@@ -1478,7 +1688,7 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         const authResult = await requireAuth(request, env);
         if (authResult.error) return jsonResponse(authResult, authResult.status);
 
-        const eaId = parseInt(matches[1]);
+        const eaId = parseInt(matches[0]);
 
         // Delete EA (will cascade delete backtests)
         await env.DB.prepare(`
@@ -1510,18 +1720,24 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         const authResult = await requireAuth(request, env);
         if (authResult.error) return jsonResponse(authResult, authResult.status);
 
+        const body = await request.json();
+        console.log('EA run request body:', JSON.stringify(body));
+
         const {
           eaId,
           datasetId,
           parameters = {},
           config = {}
-        } = await request.json();
+        } = body;
 
         if (!eaId || !datasetId) {
           return jsonResponse({
-            error: 'EA ID and dataset ID are required'
+            error: 'EA ID and dataset ID are required',
+            received: { eaId, datasetId }
           }, 400);
         }
+
+        console.log(`Fetching EA ${eaId} for user ${authResult.user.id}`);
 
         // Get EA code
         const ea = await env.DB.prepare(`
@@ -1530,28 +1746,36 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
           WHERE id = ? AND user_id = ?
         `).bind(eaId, authResult.user.id).first();
 
+        console.log(`EA found:`, ea ? `${ea.name} (status: ${ea.status})` : 'null');
+
         if (!ea) {
           return jsonResponse({ error: 'EA not found' }, 404);
         }
 
         if (ea.status === 'error' || !ea.transpiled_code) {
           return jsonResponse({
-            error: 'EA has parse errors and cannot be executed'
+            error: 'EA has parse errors and cannot be executed',
+            status: ea.status,
+            hasTranspiledCode: !!ea.transpiled_code
           }, 400);
         }
 
         // Get dataset info
+        console.log(`Fetching dataset ${datasetId}`);
         const dataset = await env.DB.prepare(`
           SELECT id, name, symbol, timeframe
           FROM datasets
           WHERE id = ? AND user_id = ?
         `).bind(datasetId, authResult.user.id).first();
 
+        console.log(`Dataset found:`, dataset ? `${dataset.name} (${dataset.symbol} ${dataset.timeframe})` : 'null');
+
         if (!dataset) {
           return jsonResponse({ error: 'Dataset not found' }, 404);
         }
 
         // Get historical data
+        console.log(`Fetching historical data for dataset ${datasetId}`);
         const dataResult = await env.DB.prepare(`
           SELECT timestamp, open, high, low, close, volume
           FROM historical_data
@@ -1559,13 +1783,30 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
           ORDER BY timestamp ASC
         `).bind(datasetId).all();
 
+        console.log(`Historical data candles:`, dataResult.results.length);
+
         if (dataResult.results.length === 0) {
+          // Debug: Check if historical data exists but with wrong dataset_id linkage
+          const debugData = await env.DB.prepare(`
+            SELECT COUNT(*) as total, dataset_id
+            FROM historical_data
+            WHERE symbol = ? AND timeframe = ?
+            GROUP BY dataset_id
+          `).bind(dataset.symbol, dataset.timeframe).all();
+
+          console.log(`Debug - historical_data for ${dataset.symbol} ${dataset.timeframe}:`, JSON.stringify(debugData.results));
+
           return jsonResponse({
-            error: 'No historical data found for this dataset'
+            error: 'No historical data found for this dataset',
+            datasetId: datasetId,
+            symbol: dataset.symbol,
+            timeframe: dataset.timeframe,
+            debugInfo: debugData.results
           }, 400);
         }
 
         // Create backtest record
+        console.log(`Creating backtest record`);
         const backtestResult = await env.DB.prepare(`
           INSERT INTO ea_backtests
           (ea_id, user_id, dataset_id, parameters, config, status)
@@ -1579,12 +1820,11 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         ).run();
 
         const backtestId = backtestResult.meta.last_row_id;
+        console.log(`Backtest record created with ID: ${backtestId}`);
 
         try {
-          // Import EA Runner
-          const { EARunner } = await import('./mql5/eaRunner.js');
-
           // Run backtest
+          console.log(`Initializing EA runner`);
           const backtestConfig = {
             initialBalance: config.initialBalance || 10000,
             symbol: dataset.symbol || config.symbol || 'EURUSD',
@@ -1593,6 +1833,11 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
             commission: config.commission || 7
           };
 
+          console.log('Backtest config:', JSON.stringify(backtestConfig));
+          console.log('Transpiled code length:', ea.transpiled_code?.length || 0);
+          console.log('Historical data points:', dataResult.results.length);
+
+          console.log('Creating EARunner instance...');
           const runner = new EARunner(
             ea.transpiled_code,
             dataResult.results,
@@ -1600,11 +1845,16 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
             backtestConfig
           );
 
+          console.log('Running EA backtest...');
           const runResult = await runner.run();
+          console.log('EA run completed:', runResult.success ? 'SUCCESS' : 'FAILED');
 
           if (!runResult.success) {
+            console.error('EA run failed:', runResult.error);
             throw new Error(runResult.error || 'Backtest execution failed');
           }
+
+          console.log('Backtest results:', JSON.stringify(runResult.results));
 
           // Update backtest with results
           await env.DB.prepare(`
@@ -1671,8 +1921,88 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
 
       } catch (error) {
         console.error('EA backtest error:', error);
+        console.error('Error stack:', error.stack);
         return jsonResponse({
           error: 'Failed to run EA backtest',
+          details: error.message,
+          stack: error.stack,
+          errorType: error.constructor.name
+        }, 500);
+      }
+    }
+  });
+
+  // POST /api/backtest/ea/:eaId/backtests - Save backtest results (client-side execution)
+  routes.push({
+    method: 'POST',
+    pattern: /^\/api\/backtest\/ea\/(\d+)\/backtests$/,
+    handler: async (request, env, matches) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const eaId = parseInt(matches[0]);
+        const body = await request.json();
+
+        console.log('Saving backtest results for EA:', eaId);
+
+        // Verify EA ownership
+        const ea = await env.DB.prepare(`
+          SELECT id FROM expert_advisors WHERE id = ? AND user_id = ?
+        `).bind(eaId, authResult.user.id).first();
+
+        if (!ea) {
+          return jsonResponse({ error: 'EA not found' }, 404);
+        }
+
+        // Create backtest record
+        const backtestResult = await env.DB.prepare(`
+          INSERT INTO ea_backtests (
+            ea_id, user_id, dataset_id, parameters, config,
+            status, started_at, completed_at
+          ) VALUES (?, ?, ?, ?, ?, 'completed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `).bind(
+          eaId,
+          authResult.user.id,
+          body.datasetId,
+          JSON.stringify({}),
+          JSON.stringify({ initialBalance: 10000, commission: 7 })
+        ).run();
+
+        const backtestId = backtestResult.meta.last_row_id;
+
+        // Save metrics
+        const r = body.results;
+        await env.DB.prepare(`
+          INSERT INTO ea_backtest_metrics (
+            backtest_id, initial_balance, final_balance, net_profit,
+            total_return, profit_factor, total_trades, winning_trades,
+            losing_trades, win_rate, gross_profit, gross_loss,
+            avg_win, avg_loss, avg_trade, largest_win, largest_loss,
+            max_consecutive_wins, max_consecutive_losses, max_drawdown,
+            max_drawdown_percent, sharpe_ratio, sortino_ratio, expectancy
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          backtestId, r.initialBalance, r.finalBalance, r.netProfit,
+          r.totalReturn, r.profitFactor, r.totalTrades, r.winningTrades,
+          r.losingTrades, r.winRate, r.grossProfit, r.grossLoss,
+          r.avgWin, r.avgLoss, r.avgTrade, r.largestWin, r.largestLoss,
+          r.maxConsecutiveWins, r.maxConsecutiveLosses, r.maxDrawdown,
+          r.maxDrawdownPercent, r.sharpeRatio, r.sortinoRatio, r.expectancy
+        ).run();
+
+        console.log(`Backtest ${backtestId} saved successfully`);
+
+        return jsonResponse({
+          success: true,
+          backtestId,
+          message: 'Backtest results saved successfully'
+        });
+
+      } catch (error) {
+        console.error('Save backtest error:', error);
+        return jsonResponse({
+          error: 'Failed to save backtest results',
           details: error.message
         }, 500);
       }
@@ -1688,7 +2018,7 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         const authResult = await requireAuth(request, env);
         if (authResult.error) return jsonResponse(authResult, authResult.status);
 
-        const eaId = parseInt(matches[1]);
+        const eaId = parseInt(matches[0]);
 
         const result = await env.DB.prepare(`
           SELECT
@@ -1745,7 +2075,7 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         const authResult = await requireAuth(request, env);
         if (authResult.error) return jsonResponse(authResult, authResult.status);
 
-        const backtestId = parseInt(matches[1]);
+        const backtestId = parseInt(matches[0]);
 
         const backtest = await env.DB.prepare(`
           SELECT
@@ -1794,7 +2124,7 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         const authResult = await requireAuth(request, env);
         if (authResult.error) return jsonResponse(authResult, authResult.status);
 
-        const backtestId = parseInt(matches[1]);
+        const backtestId = parseInt(matches[0]);
 
         await env.DB.prepare(`
           DELETE FROM ea_backtests
@@ -1810,6 +2140,492 @@ export function registerBacktestingRoutes(routes, requireAuth, jsonResponse) {
         console.error('EA backtest delete error:', error);
         return jsonResponse({
           error: 'Failed to delete backtest',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // ============================================
+  // MT5 PYTHON SERVER INTEGRATION
+  // ============================================
+
+  // POST /api/backtest/ea/run-mt5 - Run EA backtest on Python MT5 server
+  routes.push({
+    method: 'POST',
+    pattern: /^\/api\/backtest\/ea\/run-mt5$/,
+    handler: async (request, env) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const body = await request.json();
+        console.log('MT5 backtest request:', JSON.stringify(body));
+
+        const { eaCode, symbol, timeframe, startDate, endDate, initialBalance, parameters } = body;
+
+        if (!eaCode || !symbol || !timeframe || !startDate || !endDate) {
+          return jsonResponse({
+            error: 'eaCode, symbol, timeframe, startDate, and endDate are required'
+          }, 400);
+        }
+
+        // Prepare request for Python server
+        const mt5Request = {
+          ea_code: eaCode,
+          symbol: symbol,
+          timeframe: timeframe,
+          start_date: startDate,
+          end_date: endDate,
+          initial_balance: initialBalance || 10000,
+          parameters: parameters || {}
+        };
+
+        console.log(`Forwarding backtest to Python server: ${env.MT5_SERVER_URL}/api/backtest/run`);
+
+        // Create AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout for backtest
+
+        try {
+          // Forward request to Python MT5 server
+          const response = await fetch(`${env.MT5_SERVER_URL}/api/backtest/run`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${env.MT5_SERVER_API_KEY}`
+            },
+            body: JSON.stringify(mt5Request),
+            signal: controller.signal
+          });
+
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Python server error (${response.status}):`, errorText);
+            return jsonResponse({
+              error: 'MT5 server returned an error',
+              status: response.status,
+              details: errorText
+            }, response.status);
+          }
+
+          const result = await response.json();
+          console.log('MT5 backtest result:', JSON.stringify(result));
+
+          return jsonResponse({
+            success: true,
+            source: 'mt5-python-server',
+            ...result
+          });
+
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          
+          if (fetchError.name === 'AbortError') {
+            return jsonResponse({
+              error: 'MT5 backtest request timed out',
+              details: 'The server did not respond within 30 seconds',
+              mt5_server: env.MT5_SERVER_URL
+            }, 504);
+          }
+
+          throw fetchError;
+        }
+
+      } catch (error) {
+        console.error('MT5 backtest error:', error);
+        return jsonResponse({
+          error: 'Failed to run MT5 backtest',
+          details: error.message,
+          mt5_server: env.MT5_SERVER_URL,
+          error_type: error.name || 'UnknownError'
+        }, 500);
+      }
+    }
+  });
+
+  // GET /api/backtest/mt5/health - Check Python MT5 server health
+  routes.push({
+    method: 'GET',
+    pattern: /^\/api\/backtest\/mt5\/health\/?$/,
+    handler: async (request, env) => {
+      try {
+        console.log('MT5 health check endpoint called');
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) {
+          console.log('Auth error:', authResult.error, 'Status:', authResult.status);
+          return jsonResponse(authResult, authResult.status);
+        }
+        console.log('Auth successful, user:', authResult.user?.id);
+
+        const healthUrl = `${env.MT5_SERVER_URL}/health`;
+        console.log(`Checking MT5 server health: ${healthUrl}`);
+
+        // Create AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+        try {
+          const response = await fetch(healthUrl, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+            },
+            signal: controller.signal
+          });
+
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`MT5 server returned ${response.status}: ${errorText}`);
+            return jsonResponse({
+              error: 'MT5 server health check failed',
+              status: response.status,
+              details: errorText,
+              mt5_server: env.MT5_SERVER_URL
+            }, response.status);
+          }
+
+          const healthData = await response.json();
+
+          return jsonResponse({
+            success: true,
+            mt5_server: env.MT5_SERVER_URL,
+            ...healthData
+          });
+
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          
+          // Check if it's a timeout or network error
+          if (fetchError.name === 'AbortError') {
+            console.error('MT5 health check timed out after 10 seconds');
+            return jsonResponse({
+              error: 'MT5 server health check timed out',
+              details: 'The server did not respond within 10 seconds',
+              mt5_server: env.MT5_SERVER_URL,
+              suggestion: 'Check if the server is running and accessible'
+            }, 504);
+          }
+
+          // Check for network errors
+          if (fetchError.message && (
+            fetchError.message.includes('Failed to fetch') ||
+            fetchError.message.includes('NetworkError') ||
+            fetchError.message.includes('fetch failed')
+          )) {
+            console.error('MT5 server network error:', fetchError.message);
+            return jsonResponse({
+              error: 'Cannot connect to MT5 server',
+              details: fetchError.message,
+              mt5_server: env.MT5_SERVER_URL,
+              suggestion: 'Check if the server is running and accessible from Cloudflare Workers. Note: Cloudflare Workers may have restrictions on HTTP connections.'
+            }, 503);
+          }
+
+          throw fetchError; // Re-throw if it's a different error
+        }
+
+      } catch (error) {
+        console.error('MT5 health check error:', error);
+        return jsonResponse({
+          error: 'Failed to check MT5 server health',
+          details: error.message,
+          mt5_server: env.MT5_SERVER_URL,
+          error_type: error.name || 'UnknownError'
+        }, 500);
+      }
+    }
+  });
+
+  // GET /api/backtest/mt5/symbols - Get available symbols from MT5
+  routes.push({
+    method: 'GET',
+    pattern: /^\/api\/backtest\/mt5\/symbols$/,
+    handler: async (request, env) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        // Create AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+        try {
+          const response = await fetch(`${env.MT5_SERVER_URL}/api/symbols`, {
+            headers: {
+              'Authorization': `Bearer ${env.MT5_SERVER_API_KEY}`,
+              'Accept': 'application/json'
+            },
+            signal: controller.signal
+          });
+
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            return jsonResponse({
+              error: 'Failed to fetch symbols from MT5 server',
+              status: response.status,
+              details: errorText
+            }, response.status);
+          }
+
+          const data = await response.json();
+          return jsonResponse(data);
+
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          
+          if (fetchError.name === 'AbortError') {
+            return jsonResponse({
+              error: 'MT5 symbols request timed out',
+              details: 'The server did not respond within 10 seconds',
+              mt5_server: env.MT5_SERVER_URL
+            }, 504);
+          }
+
+          if (fetchError.message && (
+            fetchError.message.includes('Failed to fetch') ||
+            fetchError.message.includes('NetworkError') ||
+            fetchError.message.includes('fetch failed')
+          )) {
+            return jsonResponse({
+              error: 'Cannot connect to MT5 server',
+              details: fetchError.message,
+              mt5_server: env.MT5_SERVER_URL
+            }, 503);
+          }
+
+          throw fetchError;
+        }
+
+      } catch (error) {
+        console.error('MT5 symbols fetch error:', error);
+        return jsonResponse({
+          error: 'Failed to fetch MT5 symbols',
+          details: error.message,
+          mt5_server: env.MT5_SERVER_URL,
+          error_type: error.name || 'UnknownError'
+        }, 500);
+      }
+    }
+  });
+
+  // ============================================
+  // MT5 HTML REPORT UPLOAD (SIMPLIFIED APPROACH)
+  // ============================================
+
+  // POST /api/backtest/report/upload - Upload MT5 HTML report
+  routes.push({
+    method: 'POST',
+    pattern: /^\/api\/backtest\/report\/upload$/,
+    handler: async (request, env) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const formData = await request.formData();
+        const file = formData.get('file');
+        const eaName = formData.get('ea_name') || 'Unknown EA';
+        const description = formData.get('description') || '';
+
+        if (!file) {
+          return jsonResponse({ error: 'Report file is required' }, 400);
+        }
+
+        // Read HTML file
+        const htmlContent = await file.text();
+
+        // Import and use the parser
+        const { parseMT5Report, validateMT5Report } = await import('./mt5ReportParser.js');
+
+        // Validate it's an MT5 report
+        const validation = validateMT5Report(htmlContent);
+        if (!validation.isValid) {
+          return jsonResponse({
+            error: 'Invalid MT5 report file. Please upload an HTML report from MetaTrader 5 Strategy Tester.',
+            confidence: validation.confidence
+          }, 400);
+        }
+
+        // Parse the report
+        const parseResult = parseMT5Report(htmlContent);
+        if (!parseResult.success) {
+          return jsonResponse({
+            error: 'Failed to parse report',
+            details: parseResult.error
+          }, 400);
+        }
+
+        // Store the backtest result in database
+        const result = await env.DB.prepare(`
+          INSERT INTO backtest_results (
+            user_id, ea_name, symbol, period, model, test_start_date, test_end_date,
+            initial_deposit, total_net_profit, gross_profit, gross_loss, profit_factor,
+            max_drawdown, max_drawdown_percent, relative_drawdown,
+            total_trades, short_positions, long_positions, profit_trades, loss_trades,
+            win_rate, loss_rate, roi,
+            largest_profit_trade, largest_loss_trade, average_profit_trade, average_loss_trade,
+            max_consecutive_wins, max_consecutive_losses, max_consecutive_profit, max_consecutive_loss,
+            recovery_factor, sharpe_ratio, balance, equity,
+            report_html, description, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `).bind(
+          authResult.user.id,
+          eaName,
+          parseResult.metrics.symbol || 'N/A',
+          parseResult.metrics.period || 'N/A',
+          parseResult.metrics.model || 'N/A',
+          parseResult.metrics.startDate || null,
+          parseResult.metrics.endDate || null,
+          parseResult.metrics.initialDeposit,
+          parseResult.metrics.totalNetProfit,
+          parseResult.metrics.grossProfit,
+          parseResult.metrics.grossLoss,
+          parseResult.metrics.profitFactor,
+          parseResult.metrics.maximalDrawdown,
+          parseResult.metrics.maximalDrawdownPercent,
+          parseResult.metrics.relativeDrawdown,
+          parseResult.metrics.totalTrades,
+          parseResult.metrics.shortPositions,
+          parseResult.metrics.longPositions,
+          parseResult.metrics.profitTrades,
+          parseResult.metrics.lossTrades,
+          parseResult.metrics.winRate,
+          parseResult.metrics.lossRate,
+          parseResult.metrics.returnOnInvestment,
+          parseResult.metrics.largestProfitTrade,
+          parseResult.metrics.largestLossTrade,
+          parseResult.metrics.averageProfitTrade,
+          parseResult.metrics.averageLossTrade,
+          parseResult.metrics.maxConsecutiveWins,
+          parseResult.metrics.maxConsecutiveLosses,
+          parseResult.metrics.maxConsecutiveProfit,
+          parseResult.metrics.maxConsecutiveLoss,
+          parseResult.metrics.recoveryFactor,
+          parseResult.metrics.sharpeRatio,
+          parseResult.metrics.balance,
+          parseResult.metrics.equity,
+          htmlContent,
+          description
+        ).run();
+
+        return jsonResponse({
+          success: true,
+          message: 'Report uploaded and parsed successfully',
+          backtest_id: result.meta.last_row_id,
+          metrics: parseResult.metrics,
+          trades_count: parseResult.totalTrades
+        }, 201);
+
+      } catch (error) {
+        console.error('Report upload error:', error);
+        return jsonResponse({
+          error: 'Failed to upload report',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // GET /api/backtest/report/list - List all uploaded reports
+  routes.push({
+    method: 'GET',
+    pattern: /^\/api\/backtest\/report\/list$/,
+    handler: async (request, env) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const reports = await env.DB.prepare(`
+          SELECT
+            id, ea_name, symbol, period, test_start_date, test_end_date,
+            total_net_profit, profit_factor, max_drawdown_percent,
+            total_trades, win_rate, roi, created_at
+          FROM backtest_results
+          WHERE user_id = ?
+          ORDER BY created_at DESC
+        `).bind(authResult.user.id).all();
+
+        return jsonResponse({
+          success: true,
+          reports: reports.results || []
+        });
+
+      } catch (error) {
+        console.error('List reports error:', error);
+        return jsonResponse({
+          error: 'Failed to list reports',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // GET /api/backtest/report/:id - Get specific report details
+  routes.push({
+    method: 'GET',
+    pattern: /^\/api\/backtest\/report\/(\d+)$/,
+    handler: async (request, env, [reportId]) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const report = await env.DB.prepare(`
+          SELECT * FROM backtest_results
+          WHERE id = ? AND user_id = ?
+        `).bind(reportId, authResult.user.id).first();
+
+        if (!report) {
+          return jsonResponse({ error: 'Report not found' }, 404);
+        }
+
+        return jsonResponse({
+          success: true,
+          report
+        });
+
+      } catch (error) {
+        console.error('Get report error:', error);
+        return jsonResponse({
+          error: 'Failed to get report',
+          details: error.message
+        }, 500);
+      }
+    }
+  });
+
+  // DELETE /api/backtest/report/:id - Delete a report
+  routes.push({
+    method: 'DELETE',
+    pattern: /^\/api\/backtest\/report\/(\d+)$/,
+    handler: async (request, env, [reportId]) => {
+      try {
+        const authResult = await requireAuth(request, env);
+        if (authResult.error) return jsonResponse(authResult, authResult.status);
+
+        const result = await env.DB.prepare(`
+          DELETE FROM backtest_results
+          WHERE id = ? AND user_id = ?
+        `).bind(reportId, authResult.user.id).run();
+
+        if (result.meta.changes === 0) {
+          return jsonResponse({ error: 'Report not found' }, 404);
+        }
+
+        return jsonResponse({
+          success: true,
+          message: 'Report deleted successfully'
+        });
+
+      } catch (error) {
+        console.error('Delete report error:', error);
+        return jsonResponse({
+          error: 'Failed to delete report',
           details: error.message
         }, 500);
       }
