@@ -2885,32 +2885,40 @@ async function temporaryLogin(request, env, corsHeaders) {
       SELECT * FROM temporary_access
       WHERE access_code = ?
       AND is_active = 1
-      AND is_used = 0
       AND datetime(expires_at) > datetime('now')
     `).bind(access_code).first();
 
     if (!token) {
       return new Response(JSON.stringify({
         success: false,
-        error: 'Invalid, expired, or already used access code'
+        error: 'Invalid, expired, or revoked access code'
       }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
-    // Mark as used and update last activity
-    await env.DB.prepare(`
-      UPDATE temporary_access
-      SET is_used = 1,
-          used_at = CURRENT_TIMESTAMP,
-          last_activity_at = CURRENT_TIMESTAMP,
-          ip_address = ?
-      WHERE access_code = ?
-    `).bind(
-      request.headers.get('cf-connecting-ip') || 'unknown',
-      access_code
-    ).run();
+    // Mark as used (first time) and update last activity
+    // Note: Tokens can be used multiple times until they expire
+    const updateQuery = token.is_used === 0
+      ? `UPDATE temporary_access
+         SET is_used = 1,
+             used_at = CURRENT_TIMESTAMP,
+             last_activity_at = CURRENT_TIMESTAMP,
+             ip_address = ?
+         WHERE access_code = ?`
+      : `UPDATE temporary_access
+         SET last_activity_at = CURRENT_TIMESTAMP
+         WHERE access_code = ?`;
+
+    if (token.is_used === 0) {
+      await env.DB.prepare(updateQuery).bind(
+        request.headers.get('cf-connecting-ip') || 'unknown',
+        access_code
+      ).run();
+    } else {
+      await env.DB.prepare(updateQuery).bind(access_code).run();
+    }
 
     // Generate JWT for this temporary session
     const payload = {
@@ -2922,7 +2930,7 @@ async function temporaryLogin(request, env, corsHeaders) {
       iat: Math.floor(Date.now() / 1000)
     };
 
-    const jwtToken = await signJWT(payload, env.JWT_SECRET || 'default-secret-change-in-production');
+    const jwtToken = await generateJWT(payload, env.JWT_SECRET || 'default-secret-change-in-production');
 
     // Log the login
     await env.DB.prepare(
