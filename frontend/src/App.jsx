@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, lazy, Suspense } from 'react';
-import { Upload, TrendingUp, TrendingDown, DollarSign, Activity, BarChart3, Calendar, Plus, Download, Settings, Wifi, WifiOff, X, Check, AlertCircle, Zap, Target, Edit, Trash2, Filter, Search, Star, Tag, Smile, LogOut, User, Shield, Moon, Sun, Camera, Loader, Info, Brain, Database, FlaskConical, LineChart as LineChartIcon, BookOpen } from 'lucide-react';
+import { Upload, TrendingUp, TrendingDown, DollarSign, Activity, BarChart3, Calendar, Plus, Download, Settings, Wifi, WifiOff, X, Check, AlertCircle, Zap, Target, Edit, Trash2, Filter, Search, Star, Tag, Smile, LogOut, User, Shield, Moon, Sun, Camera, Loader, Info, Brain, Database, FlaskConical, LineChart as LineChartIcon, BookOpen, FileCode } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import ScreenshotUpload from './ScreenshotUpload';
 
@@ -27,6 +27,7 @@ const InstallPWA = lazy(() => import('./components/InstallPWA'));
 const DataManager = lazy(() => import('./components/DataManager'));
 const BacktestBuilder = lazy(() => import('./components/BacktestBuilder'));
 const BacktestResults = lazy(() => import('./components/BacktestResults'));
+const EABacktestUpload = lazy(() => import('./components/EABacktestUpload'));
 const UserGuide = lazy(() => import('./components/UserGuide'));
 
 const COLORS = ['#8b5cf6', '#ec4899', '#06b6d4', '#10b981', '#f59e0b', '#ef4444'];
@@ -2430,6 +2431,17 @@ const FXTradingDashboard = () => {
             Results
           </button>
           <button
+            onClick={() => setActiveTab('ea-manager')}
+            className={`flex-1 px-3 sm:px-5 py-3 rounded-lg font-bold transition-all duration-200 text-sm sm:text-base ${
+              activeTab === 'ea-manager'
+                ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white shadow-lg'
+                : 'text-slate-100 hover:text-white hover:bg-slate-700/50'
+            }`}
+          >
+            <FileCode className="inline mr-1" size={16} />
+            EA
+          </button>
+          <button
             onClick={() => setActiveTab('guide')}
             className={`flex-1 px-3 sm:px-5 py-3 rounded-lg font-bold transition-all duration-200 text-sm sm:text-base ${
               activeTab === 'guide'
@@ -3452,6 +3464,16 @@ const FXTradingDashboard = () => {
         {activeTab === 'backtest-results' && (
           <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Backtest Results...</div></div>}>
             <BacktestResults
+              apiUrl={apiUrl}
+              authToken={authToken}
+            />
+          </Suspense>
+        )}
+
+        {/* EA Backtest Upload Tab */}
+        {activeTab === 'ea-manager' && (
+          <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading EA Backtests...</div></div>}>
+            <EABacktestUpload
               apiUrl={apiUrl}
               authToken={authToken}
             />
