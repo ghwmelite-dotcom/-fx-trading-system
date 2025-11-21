@@ -1407,6 +1407,219 @@ const UserGuide = () => {
             )
           }
         ]
+      },
+      {
+        id: 'advanced-features',
+        title: 'Advanced Features',
+        icon: Zap,
+        color: 'text-cyan-400',
+        sections: [
+          {
+            id: 'psychology-dashboard',
+            title: 'Psychology Dashboard',
+            content: (
+              <div className="space-y-4">
+                <p className="text-slate-300">
+                  Track your trading discipline and emotional patterns with our advanced Psychology Dashboard.
+                </p>
+
+                <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <Brain className="text-purple-400 flex-shrink-0 mt-1" size={20} />
+                    <div>
+                      <h4 className="text-purple-400 font-semibold mb-2">Discipline Score</h4>
+                      <p className="text-slate-300 text-sm">
+                        Your overall discipline score (0-100) is calculated from four components:
+                      </p>
+                      <ul className="text-slate-400 text-sm mt-2 space-y-1">
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span><strong>Risk Discipline:</strong> Position sizing consistency</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span><strong>Consistency:</strong> Trading pattern regularity</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span><strong>Emotional Control:</strong> Revenge trading resistance</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-purple-400">•</span>
+                          <span><strong>Rule Adherence:</strong> Following your own trading rules</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-white font-semibold">Key Features:</h4>
+                  <div className="grid gap-2">
+                    {[
+                      { name: 'Pattern Detection', desc: 'Identifies revenge trading, overtrading, and tilt patterns' },
+                      { name: 'Real-time Alerts', desc: 'Get warnings before making emotional decisions' },
+                      { name: 'AI Insights', desc: 'Personalized suggestions to improve your discipline' },
+                      { name: 'Trading Rules', desc: 'Create and enforce your own trading rules' },
+                    ].map(item => (
+                      <div key={item.name} className="flex items-start gap-3 bg-slate-800/50 rounded-lg p-3">
+                        <Check className="text-green-400 flex-shrink-0 mt-1" size={18} />
+                        <div>
+                          <div className="text-white font-medium">{item.name}</div>
+                          <div className="text-slate-400 text-sm">{item.desc}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )
+          },
+          {
+            id: 'voice-assistant',
+            title: 'Voice Assistant',
+            content: (
+              <div className="space-y-4">
+                <p className="text-slate-300">
+                  Interact with your trading data using natural language voice commands.
+                </p>
+
+                <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <Zap className="text-cyan-400 flex-shrink-0 mt-1" size={20} />
+                    <div>
+                      <h4 className="text-cyan-400 font-semibold mb-2">Quick Start</h4>
+                      <p className="text-slate-300 text-sm">
+                        Click the floating microphone button in the bottom-right corner to open the Voice Assistant.
+                        Speak or type your questions about your trading performance.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-white font-semibold">Example Commands:</h4>
+                  <div className="grid gap-2">
+                    {[
+                      "What's my win rate this month?",
+                      "Show me my best performing pair",
+                      "How many trades did I make today?",
+                      "What's my total profit this week?",
+                      "Show my psychology score"
+                    ].map((cmd, i) => (
+                      <div key={i} className="bg-slate-800/50 rounded-lg p-3 text-slate-300">
+                        "{cmd}"
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <Lightbulb className="text-blue-400 flex-shrink-0 mt-1" size={20} />
+                    <div>
+                      <h4 className="text-blue-400 font-semibold mb-2">Pro Tip</h4>
+                      <p className="text-slate-300 text-sm">
+                        The voice assistant maintains conversation context, so you can ask follow-up questions
+                        like "What about last week?" after asking about your monthly performance.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          },
+          {
+            id: 'social-trading',
+            title: 'Social Trading Network',
+            content: (
+              <div className="space-y-4">
+                <p className="text-slate-300">
+                  Connect with other traders, follow top performers, and share your trading insights.
+                </p>
+
+                <div className="space-y-3">
+                  <h4 className="text-white font-semibold">Social Features:</h4>
+                  <div className="grid gap-2">
+                    {[
+                      { name: 'Leaderboard', desc: 'See top performers by profit, win rate, or trades' },
+                      { name: 'Follow Traders', desc: 'Follow successful traders and see their activity' },
+                      { name: 'Copy Trading', desc: 'Automatically copy trades from top performers' },
+                      { name: 'Trade Feed', desc: 'Share and discuss trades with the community' },
+                      { name: 'Strategy Marketplace', desc: 'Buy and sell trading strategies' },
+                    ].map(item => (
+                      <div key={item.name} className="flex items-start gap-3 bg-slate-800/50 rounded-lg p-3">
+                        <User className="text-cyan-400 flex-shrink-0 mt-1" size={18} />
+                        <div>
+                          <div className="text-white font-medium">{item.name}</div>
+                          <div className="text-slate-400 text-sm">{item.desc}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="text-yellow-400 flex-shrink-0 mt-1" size={20} />
+                    <div>
+                      <h4 className="text-yellow-400 font-semibold mb-2">Copy Trading Risk</h4>
+                      <p className="text-slate-300 text-sm">
+                        Past performance doesn't guarantee future results. Always use proper risk management
+                        when copy trading and set appropriate risk multipliers.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          },
+          {
+            id: 'broker-comparison',
+            title: 'Broker Comparison',
+            content: (
+              <div className="space-y-4">
+                <p className="text-slate-300">
+                  Compare brokers and find the best fit for your trading style and volume.
+                </p>
+
+                <div className="space-y-3">
+                  <h4 className="text-white font-semibold">Comparison Tools:</h4>
+                  <div className="grid gap-2">
+                    {[
+                      { name: 'Side-by-Side Compare', desc: 'Select up to 5 brokers to compare' },
+                      { name: 'Cost Calculator', desc: 'Calculate exact trading costs based on your volume' },
+                      { name: 'AI Recommendations', desc: 'Get personalized broker recommendations' },
+                      { name: 'Spread Analysis', desc: 'Compare spreads across different pairs' },
+                    ].map(item => (
+                      <div key={item.name} className="flex items-start gap-3 bg-slate-800/50 rounded-lg p-3">
+                        <DollarSign className="text-blue-400 flex-shrink-0 mt-1" size={18} />
+                        <div>
+                          <div className="text-white font-medium">{item.name}</div>
+                          <div className="text-slate-400 text-sm">{item.desc}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <Award className="text-green-400 flex-shrink-0 mt-1" size={20} />
+                    <div>
+                      <h4 className="text-green-400 font-semibold mb-2">Cost Savings</h4>
+                      <p className="text-slate-300 text-sm">
+                        Enter your monthly trading volume and the calculator will show you potential
+                        annual savings between different brokers. Small spread differences can add up
+                        to significant amounts over time!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          }
+        ]
       }
     ]
   };

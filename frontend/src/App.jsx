@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, lazy, Suspense } from 'react';
-import { Upload, TrendingUp, TrendingDown, DollarSign, Activity, BarChart3, Calendar, Plus, Download, Settings, Wifi, WifiOff, X, Check, AlertCircle, Zap, Target, Edit, Trash2, Filter, Search, Star, Tag, Smile, LogOut, User, Shield, Moon, Sun, Camera, Loader, Info, Brain, Database, FlaskConical, LineChart as LineChartIcon, BookOpen, FileCode } from 'lucide-react';
+import { Upload, TrendingUp, TrendingDown, DollarSign, Activity, BarChart3, Calendar, Plus, Download, Settings, Wifi, WifiOff, X, Check, AlertCircle, Zap, Target, Edit, Trash2, Filter, Search, Star, Tag, Smile, LogOut, User, Shield, Moon, Sun, Camera, Loader, Info, Brain, Database, FlaskConical, LineChart as LineChartIcon, BookOpen, FileCode, Users, Building2, Mic } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import ScreenshotUpload from './ScreenshotUpload';
 
@@ -29,6 +29,10 @@ const BacktestBuilder = lazy(() => import('./components/BacktestBuilder'));
 const BacktestResults = lazy(() => import('./components/BacktestResults'));
 const EABacktestUpload = lazy(() => import('./components/EABacktestUpload'));
 const UserGuide = lazy(() => import('./components/UserGuide'));
+const PsychologyDashboard = lazy(() => import('./components/PsychologyDashboard'));
+const VoiceAssistantWidget = lazy(() => import('./components/VoiceAssistantWidget'));
+const BrokerComparison = lazy(() => import('./components/BrokerComparison'));
+const SocialNetworkDashboard = lazy(() => import('./components/SocialNetworkDashboard'));
 
 const COLORS = ['#8b5cf6', '#ec4899', '#06b6d4', '#10b981', '#f59e0b', '#ef4444'];
 
@@ -2452,6 +2456,28 @@ const FXTradingDashboard = () => {
             <BookOpen className="inline mr-1" size={16} />
             Guide
           </button>
+          <button
+            onClick={() => setActiveTab('social')}
+            className={`flex-1 px-3 sm:px-5 py-3 rounded-lg font-bold transition-all duration-200 text-sm sm:text-base ${
+              activeTab === 'social'
+                ? 'bg-gradient-to-r from-cyan-600 to-teal-600 text-white shadow-lg'
+                : 'text-slate-100 hover:text-white hover:bg-slate-700/50'
+            }`}
+          >
+            <Users className="inline mr-1" size={16} />
+            Social
+          </button>
+          <button
+            onClick={() => setActiveTab('brokers')}
+            className={`flex-1 px-3 sm:px-5 py-3 rounded-lg font-bold transition-all duration-200 text-sm sm:text-base ${
+              activeTab === 'brokers'
+                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg'
+                : 'text-slate-100 hover:text-white hover:bg-slate-700/50'
+            }`}
+          >
+            <Building2 className="inline mr-1" size={16} />
+            Brokers
+          </button>
 
           {/* Admin Tab - Only visible to admins */}
           {currentUser?.role === 'admin' && (
@@ -3417,11 +3443,12 @@ const FXTradingDashboard = () => {
           </Suspense>
         )}
 
-        {/* Psychology Coach Tab */}
+        {/* Psychology Dashboard Tab */}
         {activeTab === 'psychology' && (
-          <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Psychology Coach...</div></div>}>
-            <PsychologyCoach
-              trades={sortedTrades}
+          <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Psychology Dashboard...</div></div>}>
+            <PsychologyDashboard
+              apiUrl={apiUrl}
+              authToken={authToken}
             />
           </Suspense>
         )}
@@ -3484,6 +3511,27 @@ const FXTradingDashboard = () => {
         {activeTab === 'guide' && (
           <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading User Guide...</div></div>}>
             <UserGuide />
+          </Suspense>
+        )}
+
+        {/* Social Network Tab */}
+        {activeTab === 'social' && (
+          <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Social Network...</div></div>}>
+            <SocialNetworkDashboard
+              apiUrl={apiUrl}
+              authToken={authToken}
+              currentUserId={currentUser?.id}
+            />
+          </Suspense>
+        )}
+
+        {/* Broker Comparison Tab */}
+        {activeTab === 'brokers' && (
+          <Suspense fallback={<div className="flex items-center justify-center min-h-[400px]"><div className="text-slate-400">Loading Broker Comparison...</div></div>}>
+            <BrokerComparison
+              apiUrl={apiUrl}
+              authToken={authToken}
+            />
           </Suspense>
         )}
 
@@ -4261,6 +4309,16 @@ const FXTradingDashboard = () => {
       <Suspense fallback={null}>
         <InstallPWA />
       </Suspense>
+
+      {/* Voice Assistant Widget - Floating */}
+      {authToken && (
+        <Suspense fallback={null}>
+          <VoiceAssistantWidget
+            apiUrl={apiUrl}
+            authToken={authToken}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };
