@@ -8,6 +8,8 @@ const LoginModal = ({ isOpen, onClose, onLogin, apiUrl }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [showTempAccess, setShowTempAccess] = useState(false);
+  const [tempAccessCode, setTempAccessCode] = useState('');
 
   useEffect(() => {
     // Detect mobile devices
@@ -59,6 +61,33 @@ const LoginModal = ({ isOpen, onClose, onLogin, apiUrl }) => {
         onClose();
       } else {
         setError(data.error || 'Login failed');
+      }
+    } catch (err) {
+      setError('Unable to connect to server');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTempAccessSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      const response = await fetch(`${apiUrl}/api/auth/temporary-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_code: tempAccessCode })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        onLogin(data.user, data.token);
+        onClose();
+      } else {
+        setError(data.error || 'Invalid access code');
       }
     } catch (err) {
       setError('Unable to connect to server');
@@ -145,7 +174,36 @@ const LoginModal = ({ isOpen, onClose, onLogin, apiUrl }) => {
             </div>
           </div>
 
+          {/* Toggle Section */}
+          <div className="px-4 xs:px-5 sm:px-8 pt-2">
+            <div className="flex gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setShowTempAccess(false)}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+                  !showTempAccess
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                Regular Login
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowTempAccess(true)}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+                  showTempAccess
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                Temp Access
+              </button>
+            </div>
+          </div>
+
           {/* Form Section - Ultra Responsive */}
+          {!showTempAccess ? (
           <form onSubmit={handleSubmit} className="flex-1 px-4 xs:px-5 sm:px-8 pb-4 xs:pb-6 sm:pb-8 space-y-3 xs:space-y-4 overflow-y-auto safe-bottom">
             {/* Error Message */}
             {error && (
@@ -296,6 +354,64 @@ const LoginModal = ({ isOpen, onClose, onLogin, apiUrl }) => {
               </button>
             </p>
           </form>
+          ) : (
+          <form onSubmit={handleTempAccessSubmit} className="flex-1 px-4 xs:px-5 sm:px-8 pb-4 xs:pb-6 sm:pb-8 space-y-3 xs:space-y-4 overflow-y-auto safe-bottom">
+            {/* Error Message */}
+            {error && (
+              <div
+                className="px-3 py-2.5 bg-red-500/10 border border-red-500/30 rounded-lg text-red-300 text-xs sm:text-sm backdrop-blur-sm flex items-center gap-2"
+                style={{ animation: 'slideInTop 0.2s ease-out' }}
+              >
+                <X size={14} className="text-red-400 flex-shrink-0" />
+                <span className="flex-1 leading-tight">{error}</span>
+              </div>
+            )}
+
+            {/* Info Banner */}
+            <div className="px-3 py-2.5 bg-blue-500/10 border border-blue-500/30 rounded-lg text-blue-300 text-xs sm:text-sm backdrop-blur-sm">
+              Enter the temporary access code provided by an administrator
+            </div>
+
+            {/* Access Code Field */}
+            <div className="space-y-1.5">
+              <label className="block text-slate-300 text-xs sm:text-sm font-medium px-0.5">Access Code</label>
+              <div className="relative group">
+                <Lock className="absolute left-3 xs:left-3 top-1/2 transform -translate-y-1/2 text-slate-500 group-focus-within:text-purple-400 transition-colors pointer-events-none" size={18} />
+                <input
+                  type="text"
+                  value={tempAccessCode}
+                  onChange={(e) => setTempAccessCode(e.target.value.toUpperCase())}
+                  className="w-full pl-10 pr-3 py-3 xs:py-2.5 sm:py-3 bg-slate-800/50 border border-slate-700/50 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 text-[16px] xs:text-sm font-mono tracking-wider"
+                  placeholder="XXXX-XXXX"
+                  required
+                  maxLength={9}
+                  autoComplete="off"
+                />
+              </div>
+              <p className="text-slate-500 text-xs px-0.5">Format: XXXX-XXXX</p>
+            </div>
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={loading || !tempAccessCode}
+              className="w-full py-3 xs:py-2.5 sm:py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-slate-700 disabled:to-slate-800 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-all duration-200 shadow-lg hover:shadow-purple-500/50 active:scale-[0.99] text-sm sm:text-base min-h-[48px] xs:min-h-[44px] sm:min-h-[48px] flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <Loader className="animate-spin" size={18} />
+                  <span>Verifying...</span>
+                </>
+              ) : (
+                <>
+                  <Lock size={18} />
+                  <span>Access Portal</span>
+                  <ArrowRight size={16} className="opacity-75" />
+                </>
+              )}
+            </button>
+          </form>
+          )}
         </div>
       </div>
 
