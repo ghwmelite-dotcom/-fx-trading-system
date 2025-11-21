@@ -27,6 +27,14 @@ import {
 import { registerBacktestingRoutes } from './backtestingRoutes.js';
 
 // ============================================
+// ADVANCED FEATURES IMPORTS
+// ============================================
+import { registerPsychologyRoutes } from './features/psychologyScoring/routes.js';
+import { registerVoiceRoutes } from './features/voiceAssistant/routes.js';
+import { registerBrokerRoutes } from './features/brokerComparison/routes.js';
+import { registerSocialRoutes } from './features/socialNetwork/routes.js';
+
+// ============================================
 // AUTHENTICATION & SECURITY UTILITIES
 // ============================================
 
@@ -233,6 +241,37 @@ export default {
     // ============================================
     const routes = [];
     registerBacktestingRoutes(routes, requireAuth, jsonResponse);
+
+    // ============================================
+    // ADVANCED FEATURE ROUTES (AUTHENTICATED)
+    // ============================================
+    const authRoutes = [];
+    registerPsychologyRoutes(authRoutes);
+    registerVoiceRoutes(authRoutes);
+    registerBrokerRoutes(authRoutes);
+    registerSocialRoutes(authRoutes);
+
+    // Try to match authenticated feature routes first
+    for (const route of authRoutes) {
+      if (request.method === route.method) {
+        const match = path.match(route.pattern);
+        if (match) {
+          try {
+            // Require authentication for all feature routes
+            const authResult = await requireAuth(request, env);
+            if (authResult.error) {
+              return jsonResponse({ error: authResult.error }, authResult.status);
+            }
+
+            const userId = authResult.user.id;
+            return await route.handler(request, env, userId, match.slice(1));
+          } catch (error) {
+            console.error('Feature route error:', error);
+            return jsonResponse({ error: error.message }, 500);
+          }
+        }
+      }
+    }
 
     // Try to match backtesting routes
     for (const route of routes) {
