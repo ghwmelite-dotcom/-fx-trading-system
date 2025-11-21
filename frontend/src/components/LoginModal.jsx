@@ -174,28 +174,38 @@ const LoginModal = ({ isOpen, onClose, onLogin, apiUrl }) => {
             </div>
           </div>
 
-          {/* Toggle Section */}
-          <div className="px-4 xs:px-5 sm:px-8 pt-2">
-            <div className="flex gap-2 mb-4">
+          {/* Toggle Section - Fully Responsive */}
+          <div className="px-4 xs:px-5 sm:px-8 pt-2 pb-4">
+            <div className="flex gap-2 xs:gap-2.5 sm:gap-3">
               <button
                 type="button"
-                onClick={() => setShowTempAccess(false)}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+                onClick={() => {
+                  setShowTempAccess(false);
+                  setError('');
+                  setTempAccessCode('');
+                }}
+                className={`flex-1 py-2.5 xs:py-2.5 sm:py-3 rounded-lg text-xs xs:text-sm font-medium transition-all active:scale-95 ${
                   !showTempAccess
-                    ? 'bg-purple-600 text-white'
-                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                    ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30'
+                    : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
                 }`}
+                style={{ minHeight: '44px' }}
               >
                 Regular Login
               </button>
               <button
                 type="button"
-                onClick={() => setShowTempAccess(true)}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+                onClick={() => {
+                  setShowTempAccess(true);
+                  setError('');
+                  setCredentials({ username: '', password: '' });
+                }}
+                className={`flex-1 py-2.5 xs:py-2.5 sm:py-3 rounded-lg text-xs xs:text-sm font-medium transition-all active:scale-95 ${
                   showTempAccess
-                    ? 'bg-purple-600 text-white'
-                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                    ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30'
+                    : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
                 }`}
+                style={{ minHeight: '44px' }}
               >
                 Temp Access
               </button>
@@ -359,7 +369,7 @@ const LoginModal = ({ isOpen, onClose, onLogin, apiUrl }) => {
             {/* Error Message */}
             {error && (
               <div
-                className="px-3 py-2.5 bg-red-500/10 border border-red-500/30 rounded-lg text-red-300 text-xs sm:text-sm backdrop-blur-sm flex items-center gap-2"
+                className="px-3 xs:px-3.5 py-2.5 xs:py-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-300 text-xs xs:text-xs sm:text-sm backdrop-blur-sm flex items-center gap-2"
                 style={{ animation: 'slideInTop 0.2s ease-out' }}
               >
                 <X size={14} className="text-red-400 flex-shrink-0" />
@@ -367,49 +377,83 @@ const LoginModal = ({ isOpen, onClose, onLogin, apiUrl }) => {
               </div>
             )}
 
-            {/* Info Banner */}
-            <div className="px-3 py-2.5 bg-blue-500/10 border border-blue-500/30 rounded-lg text-blue-300 text-xs sm:text-sm backdrop-blur-sm">
-              Enter the temporary access code provided by an administrator
+            {/* Info Banner - Responsive */}
+            <div className="px-3 xs:px-3.5 py-2.5 xs:py-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-blue-300 text-xs xs:text-xs sm:text-sm backdrop-blur-sm leading-relaxed">
+              <div className="flex items-start gap-2">
+                <Shield size={14} className="text-blue-400 flex-shrink-0 mt-0.5" />
+                <span>Enter the temporary access code provided by an administrator</span>
+              </div>
             </div>
 
-            {/* Access Code Field */}
-            <div className="space-y-1.5">
-              <label className="block text-slate-300 text-xs sm:text-sm font-medium px-0.5">Access Code</label>
+            {/* Access Code Field - Enhanced Responsiveness */}
+            <div className="space-y-1.5 xs:space-y-2">
+              <label className="block text-slate-300 text-xs xs:text-xs sm:text-sm font-medium px-0.5">Access Code</label>
               <div className="relative group">
-                <Lock className="absolute left-3 xs:left-3 top-1/2 transform -translate-y-1/2 text-slate-500 group-focus-within:text-purple-400 transition-colors pointer-events-none" size={18} />
+                <Lock className="absolute left-3 xs:left-3.5 top-1/2 transform -translate-y-1/2 text-slate-500 group-focus-within:text-purple-400 transition-colors pointer-events-none z-10" size={18} />
                 <input
                   type="text"
                   value={tempAccessCode}
                   onChange={(e) => setTempAccessCode(e.target.value.toUpperCase())}
-                  className="w-full pl-10 pr-3 py-3 xs:py-2.5 sm:py-3 bg-slate-800/50 border border-slate-700/50 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 text-[16px] xs:text-sm font-mono tracking-wider"
+                  className="w-full pl-11 xs:pl-11 pr-3 xs:pr-4 py-3.5 xs:py-3 sm:py-3.5 bg-slate-800/50 border border-slate-700/50 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 text-[16px] xs:text-base font-mono tracking-widest text-center"
                   placeholder="XXXX-XXXX"
                   required
                   maxLength={9}
                   autoComplete="off"
+                  autoFocus={!isMobile}
+                  style={{ minHeight: '52px' }}
                 />
               </div>
-              <p className="text-slate-500 text-xs px-0.5">Format: XXXX-XXXX</p>
+              <p className="text-slate-500 text-[11px] xs:text-xs px-0.5 flex items-center gap-1.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+                <span>Format: XXXX-XXXX (8 characters)</span>
+              </p>
             </div>
 
-            {/* Submit Button */}
+            {/* Submit Button - Larger Touch Target */}
             <button
               type="submit"
               disabled={loading || !tempAccessCode}
-              className="w-full py-3 xs:py-2.5 sm:py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-slate-700 disabled:to-slate-800 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-all duration-200 shadow-lg hover:shadow-purple-500/50 active:scale-[0.99] text-sm sm:text-base min-h-[48px] xs:min-h-[44px] sm:min-h-[48px] flex items-center justify-center gap-2"
+              className="relative w-full group overflow-hidden mt-4 xs:mt-5 active:scale-[0.98] transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ minHeight: '52px' }}
             >
-              {loading ? (
-                <>
-                  <Loader className="animate-spin" size={18} />
-                  <span>Verifying...</span>
-                </>
-              ) : (
-                <>
-                  <Lock size={18} />
-                  <span>Access Portal</span>
-                  <ArrowRight size={16} className="opacity-75" />
-                </>
-              )}
+              <div className="absolute inset-0 bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg"></div>
+              <div className={`absolute inset-0 bg-gradient-to-r from-purple-500 to-blue-500 rounded-lg opacity-0 transition-opacity duration-200 ${
+                !loading && tempAccessCode ? 'group-hover:opacity-100 group-active:opacity-100' : ''
+              }`}></div>
+
+              <div className="relative px-4 py-3.5 xs:py-3 flex items-center justify-center gap-2 text-white font-semibold text-sm xs:text-base">
+                {loading ? (
+                  <>
+                    <Loader size={20} className="animate-spin" />
+                    <span>Verifying...</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock size={18} />
+                    <span>Access Portal</span>
+                    <ArrowRight size={16} className="opacity-75 group-hover:translate-x-1 transition-transform" />
+                  </>
+                )}
+              </div>
             </button>
+
+            {/* Help Text - Touch Friendly */}
+            <div className="pt-2 xs:pt-3 border-t border-slate-700/50">
+              <p className="text-center text-slate-400 text-xs xs:text-xs leading-relaxed">
+                Don't have an access code?{' '}
+                <button
+                  type="button"
+                  className="text-purple-400 hover:text-purple-300 font-medium transition-colors active:scale-95 inline-block min-h-[32px] xs:min-h-0"
+                  onClick={() => {
+                    setShowTempAccess(false);
+                    setTempAccessCode('');
+                    setError('');
+                  }}
+                >
+                  Use Regular Login
+                </button>
+              </p>
+            </div>
           </form>
           )}
         </div>
